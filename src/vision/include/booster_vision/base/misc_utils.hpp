@@ -2,6 +2,8 @@
 
 #include <vector>
 #include <chrono>
+#include <iostream>
+#include <iomanip>
 #include <sstream>
 
 #include <yaml-cpp/yaml.h>
@@ -10,7 +12,7 @@
 
 namespace booster_vision {
 
-std::string getTimeString() {
+inline std::string getTimeString() {
     auto now = std::chrono::system_clock::now();
     std::time_t now_c = std::chrono::system_clock::to_time_t(now);
     std::tm tm = *std::localtime(&now_c);
@@ -65,7 +67,7 @@ T as_or(const YAML::Node &node, const T &default_value) {
     return default_value;
 }
 
-void MergeYAML(YAML::Node a, const YAML::Node &b) {
+inline void MergeYAML(YAML::Node a, const YAML::Node &b) {
     if (!b.IsMap()) {
         a = b;
         return;
