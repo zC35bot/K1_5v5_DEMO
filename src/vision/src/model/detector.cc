@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <filesystem>
 
+#include "booster_vision/base/misc_utils.hpp"
 #include "booster_vision/model/trt/impl.h"
 #ifdef ENABLE_ONNX
 #include "booster_vision/model/onnx/detection_impl.h"
@@ -15,7 +16,10 @@ const std::vector<std::string> YoloV8Detector::kClassLabels{"Ball", "Goalpost", 
 
 std::shared_ptr<YoloV8Detector> YoloV8Detector::CreateYoloV8Detector(const YAML::Node &node, const std::string model_path_override) {
     try {        
-        std::string model_path = model_path_override.empty() ? node["model_path"].as<std::string>() : model_path_override;
+        std::string model_path = model_path_override.empty() ? as_or<std::string>(node["model_path"], "") : model_path_override;
+        if (model_path.empty()) {
+            throw std::runtime_error("detection_model.model_path is missing or not a string");
+        }
         float conf_thresh = node["confidence_threshold"].as<float>();
         float nms_thresh = node["nms_threshold"].as<float>();
 

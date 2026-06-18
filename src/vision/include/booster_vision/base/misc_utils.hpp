@@ -72,7 +72,12 @@ void MergeYAML(YAML::Node a, const YAML::Node &b) {
     }
 
     for (const auto &it : b) {
-        const std::string &key = it.first.as<std::string>();
+        if (!it.first.IsScalar()) {
+            std::cerr << "Skip non-scalar YAML key while merging config." << std::endl;
+            continue;
+        }
+
+        const std::string key = it.first.Scalar();
         const YAML::Node &b_value = it.second;
 
         if (a[key]) {

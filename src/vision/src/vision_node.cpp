@@ -111,8 +111,12 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
     } else {
         if(camera_type_.empty())
         {
-            std::cout << "camera type not overridden by launch file, using default: " << node["camera"]["type"].as<std::string>() << std::endl;
-            camera_type_ = node["camera"]["type"].as<std::string>();
+            camera_type_ = as_or<std::string>(node["camera"]["type"], "");
+            if (camera_type_.empty()) {
+                std::cerr << "camera.type is missing or not a string in merged vision config." << std::endl;
+                return;
+            }
+            std::cout << "camera type not overridden by launch file, using default: " << camera_type_ << std::endl;
         }
         intr_ = Intrinsics(node["camera"]["intrin"]);
         p_eye2head_ = as_or<Pose>(node["camera"]["extrin"], Pose());
@@ -130,7 +134,15 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
         return;
     } else {
         detector_ = YoloV8Detector::CreateYoloV8Detector(node["detection_model"], detection_model_path);
-        classnames_ = node["detection_model"]["classnames"].as<std::vector<std::string>>();
+        if (!detector_) {
+            std::cerr << "failed to initialize detection model from merged vision config." << std::endl;
+            return;
+        }
+        classnames_ = as_or<std::vector<std::string>>(node["detection_model"]["classnames"], YoloV8Detector::kClassLabels);
+        if (classnames_.empty()) {
+            classnames_ = YoloV8Detector::kClassLabels;
+            std::cerr << "detection_model.classnames is missing or invalid, fallback to built-in class labels." << std::endl;
+        }
         // detector post processing
         float default_threshold = as_or<float>(node["detection_model"]["confidence_threshold"], 0.2);
         if (node["detection_model"]["post_process"]) {
@@ -138,7 +150,11 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
             single_ball_assumption_ = as_or<bool>(node["detection_model"]["post_process"]["single_ball_assumption"], false);
             if (node["detection_model"]["post_process"]["confidence_thresholds"]) {
                 for (const auto &item : node["detection_model"]["post_process"]["confidence_thresholds"]) {
-                    confidence_map_[item.first.as<std::string>()] = item.second.as<float>();
+                    if (!item.first.IsScalar()) {
+                        std::cerr << "skip invalid non-scalar confidence threshold key." << std::endl;
+                        continue;
+                    }
+                    confidence_map_[item.first.Scalar()] = as_or<float>(item.second, default_threshold);
                 }
                 // set default confidence for other classes
                 for (const auto &classname : classnames_) {
@@ -156,6 +172,10 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
         std::cerr << "no segmentation model param found" << std::endl;
     } else {
         segmentor_ = YoloV8Segmentor::CreateYoloV8Segmentor(node["segmentation_model"], segmentation_model_path);
+        if (!segmentor_) {
+            std::cerr << "failed to initialize segmentation model from merged vision config." << std::endl;
+            return;
+        }
     }
 
     // add detector_ warmup

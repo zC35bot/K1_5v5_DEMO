@@ -1,5 +1,6 @@
 #include "booster_vision/model//segmentor.h"
 
+#include "booster_vision/base/misc_utils.hpp"
 #include "booster_vision/model//trt/impl.h"
 
 namespace booster_vision {
@@ -8,7 +9,10 @@ const std::vector<std::string> YoloV8Segmentor::kClassLabels = {"CircleLine", "L
 
 std::shared_ptr<YoloV8Segmentor> YoloV8Segmentor::CreateYoloV8Segmentor(const YAML::Node &node, const std::string &model_path_override) {
     try {
-        std::string model_path = model_path_override.empty() ? node["model_path"].as<std::string>() : model_path_override;
+        std::string model_path = model_path_override.empty() ? as_or<std::string>(node["model_path"], "") : model_path_override;
+        if (model_path.empty()) {
+            throw std::runtime_error("segmentation_model.model_path is missing or not a string");
+        }
         float conf_thresh = node["confidence_threshold"].as<float>();
 
         return std::shared_ptr<YoloV8Segmentor>(new YoloV8SegmentorTRT(model_path, conf_thresh));
