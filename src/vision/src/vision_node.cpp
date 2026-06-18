@@ -383,7 +383,7 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         detection.class_name = detector_->kClassLabels[detection.class_id];
 
         auto pose_estimator = get_estimator(detection.class_name);
-        Pose pose_obj_by_color = pose_estimator->EstimateByColor(p_eye2base, detection, color);
+        Pose pose_obj_by_color = pose_estimator->EstimateProjection(p_eye2base, detection, color, depth_float);
         Pose pose_obj_by_depth = pose_estimator->EstimateByDepth(p_eye2base, detection, color, depth_float);
 
         // filter out incorrect ball detection
@@ -460,7 +460,7 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
             }
 
             auto pose_estimator = get_estimator(detection.class_name);
-            Pose pose_obj_by_color = pose_estimator->EstimateByColor(p_eye2base, detection, color);
+            Pose pose_obj_by_color = pose_estimator->EstimateProjection(p_eye2base, detection, color, depth_float);
             auto value = pose_obj_by_color.getTranslationVec();
             if (value[0] < -2 || value[0] > 10 || value[1] < -5 || value[1] > 5) {
                 continue;

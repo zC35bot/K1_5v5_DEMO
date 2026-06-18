@@ -1,9 +1,104 @@
 #include "booster_vision/pose_estimator/pose_estimator.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "booster_vision/base/misc_utils.hpp"
 #include "booster_vision/base/pointcloud_process.h"
 
 namespace booster_vision {
+
+namespace {
+
+cv::Rect ClampRect(const cv::Rect &rect, const cv::Size &size) {
+    int x = std::max(0, rect.x);
+    int y = std::max(0, rect.y);
+    int right = std::min(size.width, rect.x + rect.width);
+    int bottom = std::min(size.height, rect.y + rect.height);
+    if (right <= x || bottom <= y) {
+        return cv::Rect();
+    }
+    return cv::Rect(x, y, right - x, bottom - y);
+}
+
+cv::Rect ExpandBallGroundRoi(const cv::Rect &bbox, const cv::Size &image_size,
+                             float expand_x_ratio, float expand_up_ratio, float expand_down_ratio) {
+    const int expand_x = static_cast<int>(std::round(bbox.width * expand_x_ratio));
+    const int expand_up = static_cast<int>(std::round(bbox.height * expand_up_ratio));
+    const int expand_down = static_cast<int>(std::round(bbox.height * expand_down_ratio));
+
+    cv::Rect expanded(bbox.x - expand_x,
+                      bbox.y - expand_up,
+                      bbox.width + 2 * expand_x,
+                      bbox.height + expand_up + expand_down);
+    return ClampRect(expanded, image_size);
+}
+
+cv::Rect BuildBallExclusionRoi(const cv::Rect &bbox, const cv::Size &image_size, float padding_ratio) {
+    const int padding = static_cast<int>(std::round(std::max(bbox.width, bbox.height) * padding_ratio));
+    cv::Rect expanded(bbox.x - padding,
+                      bbox.y - padding,
+                      bbox.width + 2 * padding,
+                      bbox.height + 2 * padding);
+    return ClampRect(expanded, image_size);
+}
+
+bool IsPlaneUsable(const std::vector<float> &plane_coeffs, float confidence,
+                   float confidence_threshold, float normal_z_min) {
+    if (plane_coeffs.size() != 4 || confidence < confidence_threshold) {
+        return false;
+    }
+
+    const float normal_norm = std::sqrt(plane_coeffs[0] * plane_coeffs[0] +
+                                        plane_coeffs[1] * plane_coeffs[1] +
+                                        plane_coeffs[2] * plane_coeffs[2]);
+    if (normal_norm < 1e-6f) {
+        return false;
+    }
+
+    return std::abs(plane_coeffs[2]) / normal_norm >= normal_z_min;
+}
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr CreateGroundCandidateCloud(const Pose &p_eye2base,
+                                                                  const cv::Mat &depth, const cv::Mat &rgb,
+                                                                  const cv::Rect &roi, const cv::Rect &exclude_roi,
+                                                                  const Intrinsics &intr, float max_abs_z) {
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+
+    for (int v = roi.y; v < roi.y + roi.height; ++v) {
+        for (int u = roi.x; u < roi.x + roi.width; ++u) {
+            if (exclude_roi.contains(cv::Point(u, v))) {
+                continue;
+            }
+
+            const float depth_value = depth.at<float>(v, u);
+            if (std::isnan(depth_value) || depth_value <= 0.0f) {
+                continue;
+            }
+
+            auto point_eye = intr.BackProject(cv::Point2f(static_cast<float>(u), static_cast<float>(v)), depth_value);
+            auto point_base = p_eye2base * point_eye;
+            if (std::abs(point_base.z) > max_abs_z) {
+                continue;
+            }
+
+            pcl::PointXYZRGB pcl_point;
+            pcl_point.x = point_base.x;
+            pcl_point.y = point_base.y;
+            pcl_point.z = point_base.z;
+            if (!rgb.empty()) {
+                pcl_point.b = rgb.at<cv::Vec3b>(v, u)[0];
+                pcl_point.g = rgb.at<cv::Vec3b>(v, u)[1];
+                pcl_point.r = rgb.at<cv::Vec3b>(v, u)[2];
+            }
+            cloud->points.push_back(pcl_point);
+        }
+    }
+
+    return cloud;
+}
+
+} // namespace
 
 cv::Point3f CalculatePositionByIntersection(const Pose &p_eye2base, const cv::Point2f target_uv, const Intrinsics &intr) {
     cv::Point3f normalized_point3d = intr.BackProject(target_uv);
@@ -20,6 +115,38 @@ cv::Point3f CalculatePositionByIntersection(const Pose &p_eye2base, const cv::Po
     return cv::Point3f(mat_position.at<float>(0, 0), mat_position.at<float>(1, 0), mat_position.at<float>(2, 0));
 }
 
+cv::Point3f CalculatePositionByIntersection(const Pose &p_eye2base, const cv::Point2f target_uv, const Intrinsics &intr,
+                                            const std::vector<float> &plane_coeffs) {
+    if (plane_coeffs.size() != 4) {
+        return CalculatePositionByIntersection(p_eye2base, target_uv, intr);
+    }
+
+    cv::Point3f normalized_point3d = intr.BackProject(target_uv);
+    cv::Mat mat_obj_ray = (cv::Mat_<float>(3, 1) << normalized_point3d.x, normalized_point3d.y, normalized_point3d.z);
+    cv::Mat mat_rot = p_eye2base.getRotationMatrix();
+    cv::Mat mat_trans = p_eye2base.toCVMat().col(3).rowRange(0, 3);
+    cv::Mat mat_rot_obj_ray = mat_rot * mat_obj_ray;
+
+    const float a = plane_coeffs[0];
+    const float b = plane_coeffs[1];
+    const float c = plane_coeffs[2];
+    const float d = plane_coeffs[3];
+
+    const float numerator = -(a * mat_trans.at<float>(0, 0) +
+                              b * mat_trans.at<float>(1, 0) +
+                              c * mat_trans.at<float>(2, 0) + d);
+    const float denominator = a * mat_rot_obj_ray.at<float>(0, 0) +
+                              b * mat_rot_obj_ray.at<float>(1, 0) +
+                              c * mat_rot_obj_ray.at<float>(2, 0);
+    if (std::abs(denominator) < 1e-6f) {
+        return CalculatePositionByIntersection(p_eye2base, target_uv, intr);
+    }
+
+    const float scale = numerator / denominator;
+    cv::Mat mat_position = mat_trans + scale * mat_rot_obj_ray;
+    return cv::Point3f(mat_position.at<float>(0, 0), mat_position.at<float>(1, 0), mat_position.at<float>(2, 0));
+}
+
 Pose PoseEstimator::EstimateByColor(const Pose &p_eye2base, const DetectionRes &detection, const cv::Mat &rgb) {
     // TODO(GW): add modification for cross class
     auto bbox = detection.bbox;
@@ -32,6 +159,10 @@ Pose PoseEstimator::EstimateByDepth(const Pose &p_eye2base, const DetectionRes &
     return Pose();
 }
 
+Pose PoseEstimator::EstimateProjection(const Pose &p_eye2base, const DetectionRes &detection, const cv::Mat &rgb, const cv::Mat &depth) {
+    return EstimateByColor(p_eye2base, detection, rgb);
+}
+
 void BallPoseEstimator::Init(const YAML::Node &node) {
     use_depth_ = as_or<bool>(node["use_depth"], false);
     radius_ = as_or<float>(node["radius"], 0.109);
@@ -41,6 +172,17 @@ void BallPoseEstimator::Init(const YAML::Node &node) {
     minimum_cluster_size_ = as_or<int>(node["minimum_cluster_size"], 150);
     filter_distance_ = as_or<float>(node["filter_distance"], 1.0);
     check_ball_height_ = as_or<bool>(node["check_ball_height"], false);
+    projection_use_ground_plane_ = as_or<bool>(node["projection_use_ground_plane"], true);
+    projection_roi_expand_x_ratio_ = as_or<float>(node["projection_roi_expand_x_ratio"], 0.6);
+    projection_roi_expand_up_ratio_ = as_or<float>(node["projection_roi_expand_up_ratio"], 0.2);
+    projection_roi_expand_down_ratio_ = as_or<float>(node["projection_roi_expand_down_ratio"], 0.8);
+    projection_exclude_ball_padding_ratio_ = as_or<float>(node["projection_exclude_ball_padding_ratio"], 0.05);
+    projection_downsample_leaf_size_ = as_or<float>(node["projection_downsample_leaf_size"], 0.01);
+    projection_plane_fitting_distance_threshold_ = as_or<float>(node["projection_plane_fitting_distance_threshold"], 0.01);
+    projection_plane_confidence_threshold_ = as_or<float>(node["projection_plane_confidence_threshold"], 0.55);
+    projection_plane_normal_z_min_ = as_or<float>(node["projection_plane_normal_z_min"], 0.9);
+    projection_ground_max_abs_z_ = as_or<float>(node["projection_ground_max_abs_z"], 0.15);
+    projection_min_points_ = as_or<int>(node["projection_min_points"], 120);
     std::cout << "filter_distance: " << filter_distance_ << std::endl;
 }
 
@@ -52,10 +194,49 @@ Pose BallPoseEstimator::EstimateByColor(const Pose &p_eye2base, const DetectionR
     return Pose(target_xyz.x, target_xyz.y, target_xyz.z, 0, 0, 0);
 }
 
+Pose BallPoseEstimator::EstimateProjection(const Pose &p_eye2base, const DetectionRes &detection, const cv::Mat &rgb, const cv::Mat &depth) {
+    auto pose = EstimateByColor(p_eye2base, detection, rgb);
+    if (!projection_use_ground_plane_ || depth.empty()) {
+        return pose;
+    }
+
+    const cv::Rect roi = ExpandBallGroundRoi(detection.bbox, depth.size(),
+                                             projection_roi_expand_x_ratio_,
+                                             projection_roi_expand_up_ratio_,
+                                             projection_roi_expand_down_ratio_);
+    if (roi.empty()) {
+        return pose;
+    }
+
+    const cv::Rect exclude_roi = BuildBallExclusionRoi(detection.bbox, depth.size(), projection_exclude_ball_padding_ratio_);
+    auto cloud = CreateGroundCandidateCloud(p_eye2base, depth, rgb, roi, exclude_roi, intr_, projection_ground_max_abs_z_);
+    if (static_cast<int>(cloud->points.size()) < projection_min_points_) {
+        return pose;
+    }
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr downsampled_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    DownSamplePointCloud(downsampled_cloud, projection_downsample_leaf_size_, cloud);
+    if (static_cast<int>(downsampled_cloud->points.size()) < projection_min_points_) {
+        return pose;
+    }
+
+    std::vector<float> plane_coeffs;
+    float confidence = 0.0f;
+    PlaneFitting(plane_coeffs, confidence, downsampled_cloud, projection_plane_fitting_distance_threshold_);
+    if (!IsPlaneUsable(plane_coeffs, confidence, projection_plane_confidence_threshold_, projection_plane_normal_z_min_)) {
+        return pose;
+    }
+
+    auto bbox = detection.bbox;
+    cv::Point2f target_uv = cv::Point2f(bbox.x + bbox.width / 2.0f, bbox.y + bbox.height);
+    cv::Point3f target_xyz = CalculatePositionByIntersection(p_eye2base, target_uv, intr_, plane_coeffs);
+    return Pose(target_xyz.x, target_xyz.y, target_xyz.z, 0, 0, 0);
+}
+
 Pose BallPoseEstimator::EstimateByDepth(const Pose &p_eye2base, const DetectionRes &detection, const cv::Mat &rgb, const cv::Mat &depth) {
     if (!use_depth_ || depth.empty()) return Pose();
 
-    auto pose = EstimateByColor(p_eye2base, detection, cv::Mat());
+    auto pose = EstimateProjection(p_eye2base, detection, rgb, depth);
     if (cv::norm(pose.getTranslationVec()) > filter_distance_) return pose;
     std::cout << "ball distance by color: " << cv::norm(pose.getTranslationVec()) << std::endl;
 

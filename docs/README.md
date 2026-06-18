@@ -13,6 +13,7 @@
 2. [Brain 模块说明](./brain.md)
 3. [Vision 模块说明](./vision.md)
 4. [参数与修改注意事项](./configuration.md)
+5. [足球定位校准说明](./ball_localization_calibration.md)
 
 如果你只想快速定位：
 
@@ -20,3 +21,4 @@
 - 想改前锋/守门策略：看 [Brain 模块说明](./brain.md)
 - 想改视觉模型、相机、标定：看 [Vision 模块说明](./vision.md)
 - 想确认某个 YAML 字段到底有没有生效：看 [参数与修改注意事项](./configuration.md)
+- 想调球的初始距离精度、看地面拟合校准：看 [足球定位校准说明](./ball_localization_calibration.md)
