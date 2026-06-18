@@ -1,5 +1,5 @@
 camera:
-  type: realsense
+  type: d-robotics
   intrin:
     fx: 642.414673
     fy: 641.951172
@@ -33,7 +33,7 @@ camera:
   yaw_compensation: 0
   z_compensation: 0
 detection_model:
-  model_path: ./src/vision/model/k1_realsense_0120.engine
+  model_path: ./src/vision/model/best_digua_1223_10.3.engine
   confidence_threshold: 0.2
   nms_threshold: 0.4
   classnames: [Ball, Goalpost, Person, LCross, TCross, XCross, PenaltyPoint, Opponent, BRMarker]
