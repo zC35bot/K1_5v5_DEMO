@@ -442,7 +442,7 @@ void Brain::handleCooperation() {
             format("tm_ball-%d", tmId).c_str(),
             tmStatus.ballPosToField, 
             tmStatus.ballDetected ? 0x00FFFFFF : (tmStatus.isAlive ? 0x006666FF : 0x003333FF),
-            tmStatus.ballConfidence,
+            tmStatus.ballDetected,
             tmStatus.ballLocationKnown
             );
         }
@@ -681,19 +681,29 @@ void Brain::updateObstacleMemory() {
 
 void Brain::updateBallMemory()
 {
+    double secs = max(0.0, msecsSince(data->ball.timePoint) / 1000.0);
 
-    double secs = msecsSince(data->ball.timePoint) / 1000;
-    
     double ballMemTimeout;
     get_parameter("strategy.ball_memory_timeout", ballMemTimeout);
 
-    if (secs > ballMemTimeout) 
-    { 
-        tree->setEntry<bool>("ball_location_known", false);
-        tree->setEntry<bool>("ball_out", false); 
+    const double rawBallConfidence = max(0.0, data->ball.confidence);
+    if (config->ballConfidenceDecayRate > 1e-6) {
+        const double decayPerSec = 100.0 / config->ballConfidenceDecayRate;
+        data->ballEffectiveConfidence = max(0.0, rawBallConfidence - secs * decayPerSec);
+    } else {
+        data->ballEffectiveConfidence = rawBallConfidence;
     }
 
-    
+    if (secs > ballMemTimeout) {
+        data->ballEffectiveConfidence = 0.0;
+    }
+
+    const bool ballLocationKnown = data->ballEffectiveConfidence > 0.0;
+    tree->setEntry<bool>("ball_location_known", ballLocationKnown);
+    if (!ballLocationKnown) {
+        tree->setEntry<bool>("ball_out", false);
+    }
+
     updateRelativePos(data->ball);
     updateRelativePos(data->tmBall);
     tree->setEntry<double>("ball_range", data->ball.range);
@@ -706,7 +716,7 @@ void Brain::updateBallMemory()
         data->ball.posToField, 
         data->ballDetected ? 0x00FF00FF : 0x006600FF,
         data->ballDetected,
-        tree->getEntry<bool>("ball_location_known")
+        ballLocationKnown
         );
     log->logBall(
         "field/tmBall", 
@@ -2139,6 +2149,7 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
 
         data->ball = ballObjs[indexRealBall];
         data->ball.confidence = bestConfidence;
+        data->ballEffectiveConfidence = bestConfidence;
 
         tree->setEntry<bool>("ball_location_known", true);
         updateBallOut();

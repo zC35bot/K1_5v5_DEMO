@@ -127,6 +127,7 @@ public:
     double kickDir = 0.; // 在决策中规划的踢球方向, field 坐标系
     string kickType = "shoot"; // "shoot" | "cross" | "block"
     bool isDirectShoot = false; // 在直接任意球开球的时候, 这个值会为 true; 执行了踢球动作或超过规定时间, 这个值会被 handleSpecialStates 重置为 false
+    double ballEffectiveConfidence = 0.0; // Based on the last observation after time decay.
 
 
     // 双机配合, tm: teammate

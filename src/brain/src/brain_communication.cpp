@@ -360,7 +360,7 @@ void BrainCommunication::unicastCommunication() {
         msg.isLead = brain->data->tmImLead;
         msg.ballDetected = brain->data->ballDetected;
         msg.ballLocationKnown = brain->tree->getEntry<bool>("ball_location_known");
-        msg.ballConfidence = brain->data->ball.confidence;
+        msg.ballConfidence = brain->data->ballEffectiveConfidence;
         msg.ballRange = brain->data->ball.range;
         msg.cost = brain->data->tmMyCost;
         msg.ballPosToField = brain->data->ball.posToField;
