@@ -10,6 +10,38 @@ namespace booster_vision {
 
 namespace {
 
+float XYDistance(const Pose &lhs, const Pose &rhs) {
+    const auto lhs_t = lhs.getTranslationVec();
+    const auto rhs_t = rhs.getTranslationVec();
+    const float dx = lhs_t[0] - rhs_t[0];
+    const float dy = lhs_t[1] - rhs_t[1];
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+Pose UseProjectionFallback(const Pose &fallback_pose,
+                           const Pose &last_valid_pose,
+                           bool has_last_valid_pose,
+                           bool hold_last_valid_on_failure,
+                           int max_failures,
+                           float max_distance_delta,
+                           int *consecutive_failures) {
+    if (consecutive_failures == nullptr) {
+        return fallback_pose;
+    }
+
+    ++(*consecutive_failures);
+    if (!hold_last_valid_on_failure || !has_last_valid_pose) {
+        return fallback_pose;
+    }
+    if (*consecutive_failures > max_failures) {
+        return fallback_pose;
+    }
+    if (XYDistance(last_valid_pose, fallback_pose) > max_distance_delta) {
+        return fallback_pose;
+    }
+    return last_valid_pose;
+}
+
 cv::Rect ClampRect(const cv::Rect &rect, const cv::Size &size) {
     int x = std::max(0, rect.x);
     int y = std::max(0, rect.y);
@@ -183,6 +215,9 @@ void BallPoseEstimator::Init(const YAML::Node &node) {
     projection_plane_normal_z_min_ = as_or<float>(node["projection_plane_normal_z_min"], 0.9);
     projection_ground_max_abs_z_ = as_or<float>(node["projection_ground_max_abs_z"], 0.15);
     projection_min_points_ = as_or<int>(node["projection_min_points"], 120);
+    projection_hold_last_valid_on_failure_ = as_or<bool>(node["projection_hold_last_valid_on_failure"], true);
+    projection_hold_last_valid_max_failures_ = as_or<int>(node["projection_hold_last_valid_max_failures"], 2);
+    projection_hold_last_valid_max_distance_delta_ = as_or<float>(node["projection_hold_last_valid_max_distance_delta"], 0.35);
     std::cout << "filter_distance: " << filter_distance_ << std::endl;
 }
 
@@ -205,32 +240,52 @@ Pose BallPoseEstimator::EstimateProjection(const Pose &p_eye2base, const Detecti
                                              projection_roi_expand_up_ratio_,
                                              projection_roi_expand_down_ratio_);
     if (roi.empty()) {
-        return pose;
+        return UseProjectionFallback(pose, last_valid_projection_pose_, has_last_valid_projection_pose_,
+                                     projection_hold_last_valid_on_failure_,
+                                     projection_hold_last_valid_max_failures_,
+                                     projection_hold_last_valid_max_distance_delta_,
+                                     &consecutive_projection_failures_);
     }
 
     const cv::Rect exclude_roi = BuildBallExclusionRoi(detection.bbox, depth.size(), projection_exclude_ball_padding_ratio_);
     auto cloud = CreateGroundCandidateCloud(p_eye2base, depth, rgb, roi, exclude_roi, intr_, projection_ground_max_abs_z_);
     if (static_cast<int>(cloud->points.size()) < projection_min_points_) {
-        return pose;
+        return UseProjectionFallback(pose, last_valid_projection_pose_, has_last_valid_projection_pose_,
+                                     projection_hold_last_valid_on_failure_,
+                                     projection_hold_last_valid_max_failures_,
+                                     projection_hold_last_valid_max_distance_delta_,
+                                     &consecutive_projection_failures_);
     }
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr downsampled_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
     DownSamplePointCloud(downsampled_cloud, projection_downsample_leaf_size_, cloud);
     if (static_cast<int>(downsampled_cloud->points.size()) < projection_min_points_) {
-        return pose;
+        return UseProjectionFallback(pose, last_valid_projection_pose_, has_last_valid_projection_pose_,
+                                     projection_hold_last_valid_on_failure_,
+                                     projection_hold_last_valid_max_failures_,
+                                     projection_hold_last_valid_max_distance_delta_,
+                                     &consecutive_projection_failures_);
     }
 
     std::vector<float> plane_coeffs;
     float confidence = 0.0f;
     PlaneFitting(plane_coeffs, confidence, downsampled_cloud, projection_plane_fitting_distance_threshold_);
     if (!IsPlaneUsable(plane_coeffs, confidence, projection_plane_confidence_threshold_, projection_plane_normal_z_min_)) {
-        return pose;
+        return UseProjectionFallback(pose, last_valid_projection_pose_, has_last_valid_projection_pose_,
+                                     projection_hold_last_valid_on_failure_,
+                                     projection_hold_last_valid_max_failures_,
+                                     projection_hold_last_valid_max_distance_delta_,
+                                     &consecutive_projection_failures_);
     }
 
     auto bbox = detection.bbox;
     cv::Point2f target_uv = cv::Point2f(bbox.x + bbox.width / 2.0f, bbox.y + bbox.height);
     cv::Point3f target_xyz = CalculatePositionByIntersection(p_eye2base, target_uv, intr_, plane_coeffs);
-    return Pose(target_xyz.x, target_xyz.y, target_xyz.z, 0, 0, 0);
+    Pose refined_pose(target_xyz.x, target_xyz.y, target_xyz.z, 0, 0, 0);
+    last_valid_projection_pose_ = refined_pose;
+    has_last_valid_projection_pose_ = true;
+    consecutive_projection_failures_ = 0;
+    return refined_pose;
 }
 
 Pose BallPoseEstimator::EstimateByDepth(const Pose &p_eye2base, const DetectionRes &detection, const cv::Mat &rgb, const cv::Mat &depth) {

@@ -74,6 +74,9 @@ ball_pose_estimator:
   projection_plane_normal_z_min: 0.9
   projection_ground_max_abs_z: 0.15
   projection_min_points: 120
+  projection_hold_last_valid_on_failure: true
+  projection_hold_last_valid_max_failures: 2
+  projection_hold_last_valid_max_distance_delta: 0.35
 human_like_pose_estimator:
   use_depth: false
   down_sample_leaf_size: 0.01

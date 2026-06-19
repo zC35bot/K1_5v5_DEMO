@@ -64,7 +64,8 @@ Main idea:
 6. Fit a plane with `PlaneFitting()`.
 7. If the fitted plane quality is good enough, treat that plane as the real ground plane.
 8. Intersect the ball bottom ray with the fitted plane.
-9. If any condition fails, fall back to the original `z = 0` plane intersection.
+9. If any condition fails, first try to hold the previous valid refined projection for a very short time.
+10. If the failure continues or the gap is too large, fall back to the original `z = 0` plane intersection.
 
 Code references:
 
@@ -175,6 +176,26 @@ The parameters live under `ball_pose_estimator` in:
 - Minimum number of candidate or downsampled points needed before fitting.
 - If this is not met, the algorithm falls back to the fixed plane.
 
+`projection_hold_last_valid_on_failure`
+
+- Enables short-term hold of the last valid refined projection when local ground fitting fails for a frame or two.
+- This is not ball trajectory prediction.
+- It only avoids single-frame jumps between “refined plane” and “fixed z = 0”.
+
+`projection_hold_last_valid_max_failures`
+
+- Maximum number of consecutive fitting failures that may still reuse the previous valid refined projection.
+- Too small: the system still jumps back too quickly.
+- Too large: stale projection may be kept for too long.
+- Recommended use: keep this very small, typically `1` to `2`.
+
+`projection_hold_last_valid_max_distance_delta`
+
+- Maximum XY distance allowed between the current fixed-plane fallback result and the cached refined result for reuse.
+- This is a guardrail to avoid reusing an obviously outdated cached pose when the ball really moved.
+- Too small: hold-last-valid almost never activates.
+- Too large: stale projection may be reused when the ball has already shifted.
+
 ### Depth sphere-fit parameters
 
 These parameters affect `position`, not the projection value consumed by `brain`:
@@ -236,6 +257,7 @@ If the result jumps or becomes unstable:
 - `projection_roi_expand_x_ratio` may be too large.
 - `projection_plane_confidence_threshold` may be too low.
 - `projection_plane_normal_z_min` may be too permissive.
+- `projection_hold_last_valid_max_failures` may be too small if the issue is single-frame depth dropout.
 - the local depth image may include legs, edges, or field-border clutter.
 
 If the refined path almost never activates:
@@ -257,6 +279,12 @@ To reach `< 1%` distance error reliably, the following also matter:
 - robot startup head pose should be stable
 
 This change is best understood as a bias-reduction layer on top of the existing calibration chain.
+
+The short-term hold-last-valid logic is best understood as a continuity guard:
+
+- it reduces projection jumps caused by single-frame fitting failure
+- it does not create new geometric information
+- it should stay conservative and short-lived
 
 If you want to understand where the remaining error still comes from, why it accumulates, and what to fix first under a short schedule, read:
 

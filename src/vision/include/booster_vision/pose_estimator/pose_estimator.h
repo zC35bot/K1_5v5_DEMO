@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
 #include <yaml-cpp/yaml.h>
@@ -62,6 +63,13 @@ private:
     float projection_plane_normal_z_min_ = 0.9f;
     float projection_ground_max_abs_z_ = 0.15f;
     int projection_min_points_ = 120;
+    bool projection_hold_last_valid_on_failure_ = true;
+    int projection_hold_last_valid_max_failures_ = 2;
+    float projection_hold_last_valid_max_distance_delta_ = 0.35f;
+
+    Pose last_valid_projection_pose_;
+    bool has_last_valid_projection_pose_ = false;
+    int consecutive_projection_failures_ = 0;
 };
 
 class HumanLikePoseEstimator : public PoseEstimator {
