@@ -258,6 +258,10 @@ To reach `< 1%` distance error reliably, the following also matter:
 
 This change is best understood as a bias-reduction layer on top of the existing calibration chain.
 
+If you want to understand where the remaining error still comes from, why it accumulates, and what to fix first under a short schedule, read:
+
+- [Ball Error Budget And Fix Plan](./ball_error_budget_and_fix_plan.md)
+
 ## 中文参数说明
 
 下面这些参数都在 `ball_pose_estimator` 下。要区分两组看。
