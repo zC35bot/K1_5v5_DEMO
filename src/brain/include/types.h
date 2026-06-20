@@ -86,6 +86,7 @@ struct GameObject
     int id;    // 识别出来的 id 
     string name;  // human readable id
     double idConfidence; // id 识别的置信度 [0, 1] 区间,
+    int positionConfidence = 0; // 视觉侧附带的位置来源/模式编码
     string info; // 用于存储额外的信息
 };
 

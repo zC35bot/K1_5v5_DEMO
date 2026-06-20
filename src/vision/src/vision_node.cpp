@@ -1,6 +1,8 @@
 #include "booster_vision/vision_node.h"
 
 #include <cstdlib>
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <filesystem>
 #include <iostream>
@@ -23,6 +25,46 @@
 #include "booster_vision/img_bridge.h"
 
 namespace booster_vision {
+
+namespace {
+
+float DetectionIoU(const cv::Rect &a, const cv::Rect &b) {
+    const int x_left = std::max(a.x, b.x);
+    const int y_top = std::max(a.y, b.y);
+    const int x_right = std::min(a.x + a.width, b.x + b.width);
+    const int y_bottom = std::min(a.y + a.height, b.y + b.height);
+    if (x_right <= x_left || y_bottom <= y_top) {
+        return 0.0f;
+    }
+
+    const float intersection = static_cast<float>((x_right - x_left) * (y_bottom - y_top));
+    const float area_a = static_cast<float>(a.area());
+    const float area_b = static_cast<float>(b.area());
+    const float union_area = area_a + area_b - intersection;
+    if (union_area <= 1e-6f) {
+        return 0.0f;
+    }
+    return intersection / union_area;
+}
+
+bool ShouldSuppressPenaltyPointForBall(const DetectionRes &ball_detection, const DetectionRes &penalty_detection) {
+    const cv::Point2f ball_center(ball_detection.bbox.x + ball_detection.bbox.width * 0.5f,
+                                  ball_detection.bbox.y + ball_detection.bbox.height * 0.5f);
+    const cv::Point2f penalty_center(penalty_detection.bbox.x + penalty_detection.bbox.width * 0.5f,
+                                     penalty_detection.bbox.y + penalty_detection.bbox.height * 0.5f);
+    const float dx = ball_center.x - penalty_center.x;
+    const float dy = ball_center.y - penalty_center.y;
+    const float center_distance = std::sqrt(dx * dx + dy * dy);
+    const float reference_size = static_cast<float>(std::max({ball_detection.bbox.width, ball_detection.bbox.height,
+                                                              penalty_detection.bbox.width, penalty_detection.bbox.height}));
+    const float iou = DetectionIoU(ball_detection.bbox, penalty_detection.bbox);
+    const bool very_close = center_distance <= std::max(12.0f, reference_size * 0.65f);
+    const bool overlapping = iou >= 0.15f;
+    const bool ball_not_much_weaker = ball_detection.confidence + 0.05f >= penalty_detection.confidence;
+    return (very_close || overlapping) && ball_not_much_weaker;
+}
+
+} // namespace
 
 VisionNode::VisionNode(const std::string &node_name) :
     rclcpp::Node(node_name) {
@@ -396,6 +438,59 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         filtered_detections = detections;
     }
 
+    if (!filtered_detections.empty()) {
+        std::vector<booster_vision::DetectionRes> ball_detections;
+        std::vector<booster_vision::DetectionRes> kept_detections;
+        for (const auto &detection : filtered_detections) {
+            const auto &classname = classnames_[detection.class_id];
+            if (classname == "Ball") {
+                ball_detections.push_back(detection);
+            } else {
+                kept_detections.push_back(detection);
+            }
+        }
+
+        for (const auto &detection : kept_detections) {
+            const auto &classname = classnames_[detection.class_id];
+            if (classname != "PenaltyPoint") {
+                continue;
+            }
+
+            bool suppressed = false;
+            for (const auto &ball_detection : ball_detections) {
+                if (ShouldSuppressPenaltyPointForBall(ball_detection, detection)) {
+                    suppressed = true;
+                    break;
+                }
+            }
+
+            if (suppressed) {
+                std::cout << "suppressed PenaltyPoint because it overlaps nearby Ball detection" << std::endl;
+            }
+        }
+
+        std::vector<booster_vision::DetectionRes> final_detections = ball_detections;
+        for (const auto &detection : kept_detections) {
+            const auto &classname = classnames_[detection.class_id];
+            if (classname != "PenaltyPoint") {
+                final_detections.push_back(detection);
+                continue;
+            }
+
+            bool suppressed = false;
+            for (const auto &ball_detection : ball_detections) {
+                if (ShouldSuppressPenaltyPointForBall(ball_detection, detection)) {
+                    suppressed = true;
+                    break;
+                }
+            }
+            if (!suppressed) {
+                final_detections.push_back(detection);
+            }
+        }
+        filtered_detections = std::move(final_detections);
+    }
+
     std::vector<booster_vision::DetectionRes> detections_for_display;
     for (auto &detection : filtered_detections) {
         vision_interface::msg::DetectedObject detection_obj;
@@ -425,6 +520,12 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         detection_obj.xmax = detection.bbox.x + detection.bbox.width;
         detection_obj.ymax = detection.bbox.y + detection.bbox.height;
         detection_obj.label = detection.class_name;
+
+        if (detection.class_name == "Ball") {
+            if (auto ball_pose_estimator = std::dynamic_pointer_cast<BallPoseEstimator>(pose_estimator)) {
+                detection_obj.position_confidence = static_cast<std::int32_t>(ball_pose_estimator->GetLastProjectionMode());
+            }
+        }
 
         if ((color_classifier_ != nullptr) && (detection.class_name == "Opponent")) {
             // get a crop of the image given detection.bbox

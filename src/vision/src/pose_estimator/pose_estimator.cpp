@@ -24,7 +24,11 @@ Pose UseProjectionFallback(const Pose &fallback_pose,
                            bool hold_last_valid_on_failure,
                            int max_failures,
                            float max_distance_delta,
-                           int *consecutive_failures) {
+                           int *consecutive_failures,
+                           bool *used_last_valid_pose) {
+    if (used_last_valid_pose != nullptr) {
+        *used_last_valid_pose = false;
+    }
     if (consecutive_failures == nullptr) {
         return fallback_pose;
     }
@@ -38,6 +42,9 @@ Pose UseProjectionFallback(const Pose &fallback_pose,
     }
     if (XYDistance(last_valid_pose, fallback_pose) > max_distance_delta) {
         return fallback_pose;
+    }
+    if (used_last_valid_pose != nullptr) {
+        *used_last_valid_pose = true;
     }
     return last_valid_pose;
 }
@@ -131,6 +138,18 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr CreateGroundCandidateCloud(const Pose &p_
 }
 
 } // namespace
+
+const char *BallPoseEstimator::ProjectionModeToString(ProjectionMode mode) {
+    switch (mode) {
+        case ProjectionMode::kRefinedPlane:
+            return "refined_plane";
+        case ProjectionMode::kHoldLastValid:
+            return "hold_last_valid";
+        case ProjectionMode::kFallbackZ0:
+        default:
+            return "fallback_z0";
+    }
+}
 
 cv::Point3f CalculatePositionByIntersection(const Pose &p_eye2base, const cv::Point2f target_uv, const Intrinsics &intr) {
     cv::Point3f normalized_point3d = intr.BackProject(target_uv);
@@ -232,50 +251,49 @@ Pose BallPoseEstimator::EstimateByColor(const Pose &p_eye2base, const DetectionR
 Pose BallPoseEstimator::EstimateProjection(const Pose &p_eye2base, const DetectionRes &detection, const cv::Mat &rgb, const cv::Mat &depth) {
     auto pose = EstimateByColor(p_eye2base, detection, rgb);
     if (!projection_use_ground_plane_ || depth.empty()) {
+        last_projection_mode_ = ProjectionMode::kFallbackZ0;
         return pose;
     }
+
+    auto fallback_or_hold = [&](const Pose &fallback_pose) {
+        bool used_last_valid_pose = false;
+        Pose output = UseProjectionFallback(fallback_pose,
+                                            last_valid_projection_pose_,
+                                            has_last_valid_projection_pose_,
+                                            projection_hold_last_valid_on_failure_,
+                                            projection_hold_last_valid_max_failures_,
+                                            projection_hold_last_valid_max_distance_delta_,
+                                            &consecutive_projection_failures_,
+                                            &used_last_valid_pose);
+        last_projection_mode_ = used_last_valid_pose ? ProjectionMode::kHoldLastValid : ProjectionMode::kFallbackZ0;
+        return output;
+    };
 
     const cv::Rect roi = ExpandBallGroundRoi(detection.bbox, depth.size(),
                                              projection_roi_expand_x_ratio_,
                                              projection_roi_expand_up_ratio_,
                                              projection_roi_expand_down_ratio_);
     if (roi.empty()) {
-        return UseProjectionFallback(pose, last_valid_projection_pose_, has_last_valid_projection_pose_,
-                                     projection_hold_last_valid_on_failure_,
-                                     projection_hold_last_valid_max_failures_,
-                                     projection_hold_last_valid_max_distance_delta_,
-                                     &consecutive_projection_failures_);
+        return fallback_or_hold(pose);
     }
 
     const cv::Rect exclude_roi = BuildBallExclusionRoi(detection.bbox, depth.size(), projection_exclude_ball_padding_ratio_);
     auto cloud = CreateGroundCandidateCloud(p_eye2base, depth, rgb, roi, exclude_roi, intr_, projection_ground_max_abs_z_);
     if (static_cast<int>(cloud->points.size()) < projection_min_points_) {
-        return UseProjectionFallback(pose, last_valid_projection_pose_, has_last_valid_projection_pose_,
-                                     projection_hold_last_valid_on_failure_,
-                                     projection_hold_last_valid_max_failures_,
-                                     projection_hold_last_valid_max_distance_delta_,
-                                     &consecutive_projection_failures_);
+        return fallback_or_hold(pose);
     }
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr downsampled_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
     DownSamplePointCloud(downsampled_cloud, projection_downsample_leaf_size_, cloud);
     if (static_cast<int>(downsampled_cloud->points.size()) < projection_min_points_) {
-        return UseProjectionFallback(pose, last_valid_projection_pose_, has_last_valid_projection_pose_,
-                                     projection_hold_last_valid_on_failure_,
-                                     projection_hold_last_valid_max_failures_,
-                                     projection_hold_last_valid_max_distance_delta_,
-                                     &consecutive_projection_failures_);
+        return fallback_or_hold(pose);
     }
 
     std::vector<float> plane_coeffs;
     float confidence = 0.0f;
     PlaneFitting(plane_coeffs, confidence, downsampled_cloud, projection_plane_fitting_distance_threshold_);
     if (!IsPlaneUsable(plane_coeffs, confidence, projection_plane_confidence_threshold_, projection_plane_normal_z_min_)) {
-        return UseProjectionFallback(pose, last_valid_projection_pose_, has_last_valid_projection_pose_,
-                                     projection_hold_last_valid_on_failure_,
-                                     projection_hold_last_valid_max_failures_,
-                                     projection_hold_last_valid_max_distance_delta_,
-                                     &consecutive_projection_failures_);
+        return fallback_or_hold(pose);
     }
 
     auto bbox = detection.bbox;
@@ -285,6 +303,7 @@ Pose BallPoseEstimator::EstimateProjection(const Pose &p_eye2base, const Detecti
     last_valid_projection_pose_ = refined_pose;
     has_last_valid_projection_pose_ = true;
     consecutive_projection_failures_ = 0;
+    last_projection_mode_ = ProjectionMode::kRefinedPlane;
     return refined_pose;
 }
 

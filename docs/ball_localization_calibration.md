@@ -196,6 +196,51 @@ The parameters live under `ball_pose_estimator` in:
 - Too small: hold-last-valid almost never activates.
 - Too large: stale projection may be reused when the ball has already shifted.
 
+## Rerun Debugging
+
+After this round of changes, `brain` rerun detection labels will show the current ball projection mode directly in the ball label:
+
+- `Ball[refined_plane]`
+- `Ball[hold_last_valid]`
+- `Ball[fallback_z0]`
+
+These labels are rendered in the existing rerun detection overlay, so no extra viewer changes are needed.
+
+Meaning of each mode:
+
+`refined_plane`
+
+- Local ground-plane fitting succeeded on this frame.
+- This is the preferred result.
+- If the ball is static but still jitters while most frames are `refined_plane`, the problem is usually plane-fit stability, ROI contamination, or raw bbox pixel jitter.
+
+`hold_last_valid`
+
+- The current frame failed local plane fitting, but the estimator decided to temporarily reuse the previous valid refined projection.
+- This is a continuity safeguard, not ball trajectory prediction.
+- A small amount of `hold_last_valid` is acceptable. If it appears too often, the fit is unstable and ROI or plane thresholds still need tuning.
+
+`fallback_z0`
+
+- The estimator is using the original fixed `z = 0` projection on this frame.
+- This happens when local plane fitting is disabled, no usable depth exists, or the fit failed and the hold-last-valid guard was not allowed to reuse the previous result.
+- If static-ball jitter mainly occurs on `fallback_z0`, then the remaining error is dominated by the old projection chain: bbox bottom-center, head pose timing, camera extrinsics, and fixed-ground assumption.
+
+## Current Test Procedure
+
+When checking the static-ball jitter issue in rerun, use this order:
+
+1. Keep robot and ball both static for at least `2` to `3` seconds.
+2. Open rerun and inspect the ball label on `image/detection_boxes`.
+3. Count how many frames are `refined_plane`, `hold_last_valid`, and `fallback_z0`.
+4. Compare the mode with the frames where ball position jumps by `10 cm` to `20 cm`.
+
+Interpretation:
+
+- Jumps on `refined_plane`: fit itself is still noisy.
+- Jumps on `hold_last_valid`: fit is intermittent, usually a plane availability issue.
+- Jumps on `fallback_z0`: old geometry chain is dominating those frames.
+
 ### Depth sphere-fit parameters
 
 These parameters affect `position`, not the projection value consumed by `brain`:

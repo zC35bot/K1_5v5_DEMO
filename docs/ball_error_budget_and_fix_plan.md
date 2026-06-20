@@ -339,6 +339,104 @@ p_eye2base = p_head2base * p_headprime2head * p_eye2head
 4. 再考虑 `tmBall` 的 EMA 或滞后。
 5. 最后才考虑更大规模的 `Locator` 修正策略。
 
+## 本轮新增改动
+
+这轮除了前面已经接入的 `ball_confidence_decay_rate` 和 `hold_last_valid` 之外，又补了三件事：
+
+1. `CamTrackBall` 收紧居中容忍框
+2. 把球投影模式暴露到 rerun
+3. 增加 `Ball` 与 `PenaltyPoint` 的近邻冲突抑制
+
+### 1. `CamTrackBall` 收紧容忍框
+
+位置：
+
+- [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp)
+
+改动：
+
+- `pixToleranceX/Y` 从原来的约 `30%` 视野宽高收紧到 `12%`
+
+目的：
+
+- 原先头部会在球仍明显偏离图像中心时提前判定“已居中”
+- 结果就是 chase 还能用，因为球总体还在视野里，但单纯盯球会出现“看得到却盯不住”
+
+这项改动属于：
+
+- `观测稳定化 / 状态估计增强`
+
+它不是改球测距本身，而是改球被看到后头部是否持续把它拉回中心。
+
+### 2. rerun 直接显示球投影来源
+
+位置：
+
+- [src/vision/include/booster_vision/pose_estimator/pose_estimator.h](../src/vision/include/booster_vision/pose_estimator/pose_estimator.h)
+- [src/vision/src/pose_estimator/pose_estimator.cpp](../src/vision/src/pose_estimator/pose_estimator.cpp)
+- [src/vision/src/vision_node.cpp](../src/vision/src/vision_node.cpp)
+- [src/brain/include/types.h](../src/brain/include/types.h)
+- [src/brain/src/brain.cpp](../src/brain/src/brain.cpp)
+
+做法：
+
+- `BallPoseEstimator` 现在会记住当前帧球投影到底来自：
+  - `refined_plane`
+  - `hold_last_valid`
+  - `fallback_z0`
+- `vision_node` 把这个模式编码进现有 `DetectedObject.position_confidence`
+- `brain` 收到后把模式名直接拼到 rerun 的球标签里
+
+你在 rerun 里会直接看到：
+
+- `Ball[refined_plane]`
+- `Ball[hold_last_valid]`
+- `Ball[fallback_z0]`
+
+这项改动属于：
+
+- `视觉投影/测距增强`
+- 更准确地说，是这一层的“可观测性增强”
+
+它的目标不是直接减少误差，而是先把静态抖动的来源按帧拆清楚，方便继续调参。
+
+### 3. `Ball` 与 `PenaltyPoint` 冲突抑制
+
+位置：
+
+- [src/vision/src/vision_node.cpp](../src/vision/src/vision_node.cpp)
+
+做法：
+
+- 如果同一帧里 `Ball` 和 `PenaltyPoint` 在图像中非常接近，或者有明显重叠
+- 并且 `Ball` 置信度并没有显著弱于 `PenaltyPoint`
+- 就优先保留 `Ball`，压掉这个 `PenaltyPoint`
+
+这项规则是纯几何 + 硬阈值：
+
+- 看中心距
+- 看 IoU
+- 看两者置信度差
+
+这项改动属于：
+
+- `视觉识别增强`
+
+它与地面拟合无关，是为了解决“球被识别成点球点”这种类别冲突。
+
+## 如何用这轮改动继续定位问题
+
+针对你说的第二条“静止 2 秒内还会有正负 `10` 到 `20 cm` 跳动”，下一轮先不要只看结果值，要同时看 rerun 标签中的模式。
+
+判断顺序：
+
+1. 如果跳动帧大多是 `Ball[refined_plane]`
+   说明主问题还在局部平面拟合本身，下一步应继续调 ROI 和 plane threshold。
+2. 如果跳动帧经常是 `Ball[hold_last_valid]`
+   说明拟合时断时续，问题偏向地面点不够、候选点被过滤过多、或 RANSAC 门限太严。
+3. 如果跳动帧经常是 `Ball[fallback_z0]`
+   说明这些帧本质上已经退回旧投影链路，抖动主要来自 bbox 底中点、头姿时间差、相机外参和固定地面假设。
+
 ## 和现有文档的关系
 
 建议配合阅读：

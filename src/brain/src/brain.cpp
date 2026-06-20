@@ -2057,6 +2057,7 @@ vector<GameObject> Brain::getGameObjects(const vision_interface::msg::Detections
         gObj.boundingBox.ymax = obj.ymax;
         gObj.boundingBox.ymin = obj.ymin;
         gObj.confidence = obj.confidence;
+        gObj.positionConfidence = obj.position_confidence;
 
         // 深度优先
         // if (obj.position.size() > 0 && !(obj.position[0] == 0 && obj.position[1] == 0))
@@ -2414,13 +2415,32 @@ void Brain::logDetection(const vector<GameObject> &gameObjects, bool logBounding
     vector<rerun::Vec2D> points_r; // robot frame
     vector<double> radiis;
 
+    auto projectionModeToString = [](int mode) -> const char * {
+        switch (mode) {
+            case 1:
+                return "refined_plane";
+            case 2:
+                return "hold_last_valid";
+            case 3:
+                return "fallback_z0";
+            default:
+                return "unknown";
+        }
+    };
+
     for (int i = 0; i < gameObjects.size(); i++)
     {
         auto obj = gameObjects[i];
         auto label = obj.label;
+        string displayLabel = label;
+        if (label == "Ball") {
+            displayLabel += "[" + string(projectionModeToString(obj.positionConfidence)) + "]";
+        } else if (label == "Opponent" || label == "Person") {
+            displayLabel += "[" + obj.color + "]";
+        }
         labels.push_back(rerun::Text(
             format("%s x:%.2f y:%.2f c:%.1f", 
-                label == "Opponent" || label == "Person" ? (label + "[" + obj.color + "]").c_str() : label.c_str(), 
+                displayLabel.c_str(),
                 obj.posToRobot.x, 
                 obj.posToRobot.y, 
                 obj.confidence)

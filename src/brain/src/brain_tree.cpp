@@ -176,8 +176,8 @@ NodeStatus StepOnSpot::tick()
 NodeStatus CamTrackBall::tick()
 {
     double pitch, yaw, ballX, ballY, deltaX, deltaY;
-    const double pixToleranceX = brain->config->camPixX * 3 / 10.; // 球距离视野中心的像素差小于这个容差, 则认为在视野中心了.
-    const double pixToleranceY = brain->config->camPixY * 3 / 10.;
+    const double pixToleranceX = brain->config->camPixX * 12 / 100.; // 收紧容忍框，避免球仍明显偏离时头部提前停止修正
+    const double pixToleranceY = brain->config->camPixY * 12 / 100.;
     const double xCenter = brain->config->camPixX / 2;
     const double yCenter = brain->config->camPixY / 2; // 用下视野 2/3（不符）位置来追踪球, 以获得更多的场上信息.
 

@@ -33,6 +33,12 @@ protected:
 
 class BallPoseEstimator : public PoseEstimator {
 public:
+    enum class ProjectionMode : std::int32_t {
+        kRefinedPlane = 1,
+        kHoldLastValid = 2,
+        kFallbackZ0 = 3,
+    };
+
     BallPoseEstimator(const Intrinsics &intr) :
         PoseEstimator(intr) {
     }
@@ -42,6 +48,8 @@ public:
     Pose EstimateByColor(const Pose &p_eye2base, const DetectionRes &detection, const cv::Mat &rgb) override;
     Pose EstimateByDepth(const Pose &p_eye2base, const DetectionRes &detection, const cv::Mat &rgb, const cv::Mat &depth) override;
     Pose EstimateProjection(const Pose &p_eye2base, const DetectionRes &detection, const cv::Mat &rgb, const cv::Mat &depth) override;
+    ProjectionMode GetLastProjectionMode() const { return last_projection_mode_; }
+    static const char *ProjectionModeToString(ProjectionMode mode);
 
 private:
     float radius_ = 0.109f;
@@ -70,6 +78,7 @@ private:
     Pose last_valid_projection_pose_;
     bool has_last_valid_projection_pose_ = false;
     int consecutive_projection_failures_ = 0;
+    ProjectionMode last_projection_mode_ = ProjectionMode::kFallbackZ0;
 };
 
 class HumanLikePoseEstimator : public PoseEstimator {
