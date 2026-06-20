@@ -310,12 +310,9 @@ void Brain::loadConfig()
 void Brain::tick()
 {
     // 输出 debug & log 相关信息
-    logDebugInfo();
     // logObstacleDistance(); // 计算量大, 仅需要时使用
     logLags();
-    statusReport();
     logStatusToConsole();
-    playSoundForFun();
     updateLogFile();
     
     updateMemory();
@@ -325,6 +322,9 @@ void Brain::tick()
     pubKickMsg();
 
     tree->tick();
+    logDebugInfo();
+    statusReport();
+    playSoundForFun();
 }
 
 void Brain::pubKickMsg() {
@@ -1103,7 +1103,7 @@ void Brain::playSound(string soundName, double blockMsecs, bool allowRepeat)
     _lastSound = soundName;
 }
 
-void Brain::speak(string text, bool allowRepeat)
+bool Brain::speak(string text, bool allowRepeat)
 {
     auto log_ = [=](string msg) {
         // log->setTimeNow();
@@ -1113,11 +1113,11 @@ void Brain::speak(string text, bool allowRepeat)
     const double COOLDOWN_MSECS = 2000.;
     if (!pubSpeak) {
         log_("publisher not found");
-        return;
+        return false;
     }
     if (!config->soundEnable || config->soundPack != "espeak") {
         log_("config not compatible");
-        return;
+        return false;
     }
 
     static string _lastText;
@@ -1125,12 +1125,12 @@ void Brain::speak(string text, bool allowRepeat)
 
     if (msecsSince(_lastTime) < COOLDOWN_MSECS) {
         log_("cooldown in process");
-        return;
+        return false;
     }
     
     if (_lastText == text && (!allowRepeat)) {
         log_("repeat not allowed");
-        return;
+        return false;
     }
     
     // else
@@ -1139,7 +1139,7 @@ void Brain::speak(string text, bool allowRepeat)
     msg.data = text;
     pubSpeak->publish(msg);
 
-    _lastText = text;
+    _lastText = text; return true;
 }
 
 double Brain::msecsSince(rclcpp::Time time)
@@ -3033,9 +3033,61 @@ void Brain::logLags() {
 }
 
 void Brain::statusReport() {
-    if (!config->soundEnable || config->soundPack != "espeak") return;
+    string decision = tree->getEntry<string>("decision");
+    string playerRole = tree->getEntry<string>("player_role");
+    string goalieMode = tree->getEntry<string>("goalie_mode");
+    int controlState = tree->getEntry<int>("control_state");
+    bool ballKnown = tree->getEntry<bool>("ball_location_known");
+    bool tmBallPosReliable = tree->getEntry<bool>("tm_ball_pos_reliable");
+    bool waitForOpponentKickoff = tree->getEntry<bool>("wait_for_opponent_kickoff");
+    bool isUnderPenalty = tree->getEntry<bool>("gc_is_under_penalty");
+    string robotState =
+        controlState == 0 ? string(u8"等待启动") :
+        controlState == 1 ? string(u8"手动模式") :
+        controlState == 2 ? string(u8"入场定位中") :
+        isUnderPenalty ? string(u8"罚下/重新入场中") :
+        waitForOpponentKickoff ? string(u8"等待对方开球") :
+        (playerRole == "goal_keeper" && goalieMode == "guard") ? string(u8"守门待命中") :
+        decision == "find" ? string(u8"正在找球") :
+        decision == "chase" ? string(u8"正在追球") :
+        decision == "adjust" ? string(u8"已追到球，正在调整") :
+        decision == "kick" ? string(u8"已追到球，正在踢球") :
+        decision == "cross" ? string(u8"已追到球，正在传球") :
+        decision == "auto_visual_kick" ? string(u8"视觉踢球中") :
+        decision == "assist" ? string(u8"协防/辅助中") :
+        decision == "retreat" ? string(u8"回撤守门中") :
+        (ballKnown || tmBallPosReliable || data->ballDetected) ? string(u8"已找到球") :
+        string(u8"状态未知");
 
     log->setTimeNow();
+    log->log("debug/robot_state", rerun::TextLog(format("state=%s role=%s decision=%s control_state=%d ball_known=%d ball_detected=%d tm_ball_pos_reliable=%d wait_for_opponent_kickoff=%d goalie_mode=%s under_penalty=%d", robotState.c_str(), playerRole.c_str(), decision.c_str(), controlState, ballKnown, data->ballDetected, tmBallPosReliable, waitForOpponentKickoff, goalieMode.c_str(), isUnderPenalty)));
+
+    if (!config->soundEnable || config->soundPack != "espeak") return;
+
+    string robotStateSpeech =
+        controlState == 0 ? "waiting to start" :
+        controlState == 1 ? "manual mode" :
+        controlState == 2 ? "entering field and localizing" :
+        isUnderPenalty ? "penalized and reentering field" :
+        waitForOpponentKickoff ? "waiting for opponent kickoff" :
+        (playerRole == "goal_keeper" && goalieMode == "guard") ? "goalkeeper guarding" :
+        decision == "find" ? "searching for the ball" :
+        decision == "chase" ? "chasing the ball" :
+        decision == "adjust" ? "ball reached, adjusting" :
+        decision == "kick" ? "ball reached, kicking" :
+        decision == "cross" ? "ball reached, passing" :
+        decision == "auto_visual_kick" ? "visual kick in progress" :
+        decision == "assist" ? "assisting" :
+        decision == "retreat" ? "retreating to defend goal" :
+        (ballKnown || tmBallPosReliable || data->ballDetected) ? "ball found" :
+        "state unknown";
+    static string lastRobotStateReport = "";
+    bool robotStateSpoken = false;
+    if (lastRobotStateReport != robotState) {
+        robotStateSpoken = speak(robotStateSpeech);
+        if (robotStateSpoken) lastRobotStateReport = robotState;
+    }
+
     static int reportInterval = 100;
     static string lastReport = "";
     string report;
@@ -3049,10 +3101,7 @@ void Brain::statusReport() {
         if (!camOK) report += "camera lost";
         if (!gcOK) report += "gamecontrol lost";
     }
-    if (lastReport != report) {
-        speak(report);
-        lastReport = report;
-    }
+    if (!robotStateSpoken && lastReport != report && speak(report)) lastReport = report;
 }
 
 void Brain::logStatusToConsole() {

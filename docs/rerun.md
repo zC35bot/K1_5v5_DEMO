@@ -52,6 +52,7 @@
 | entity_path | 内容 | 触发位置 | 发送频率 |
 | --- | --- | --- | --- |
 | `debug/brain_tick` | 总体状态调试文本 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:2652)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:2655) | 每 tick 一次，约 `100Hz` |
+| `debug/robot_state` | 机器人状态摘要，直接读取已有 `control_state`、`decision`、`ball_location_known`、`tm_ball_pos_reliable`、`wait_for_opponent_kickoff`、`gc_is_under_penalty`、`goalie_mode` 等状态并转发；典型值包括“等待启动 / 正在找球 / 已找到球 / 正在追球 / 已追到球，正在调整 / 已追到球，正在踢球”等 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:324)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3035)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3063) | 每 tick 一次，约 `100Hz`，且在 `tree->tick()` 之后发送，因此 `decision` 不会慢一拍 |
 | `debug/my_cost_scalar` | 本机 cost 标量 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:2671) | 每 tick 一次 |
 | `debug/my_lead_scalar` | 本机是否 lead 标量 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:2672) | 每 tick 一次 |
 | `image/detection_lag` | 检测延迟横条 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:2984) | 每 tick 一次 |

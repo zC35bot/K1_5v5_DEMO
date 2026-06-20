@@ -147,7 +147,7 @@ public:
     void playSound(string soundName, double blockMsecs = 1000, bool allowRepeat = false);
 
     // 使用 espeak 进行本地 tts, 文本必须是英文
-    void speak(string text, bool allowRepeat = false);
+    bool speak(string text, bool allowRepeat = false);
 
     // [临时内部使用] 发布球的位置, 以及踢球方向消息, 用于测试运控的新 kick 动作
     void pubKickMsg();
