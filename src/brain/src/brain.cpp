@@ -1106,8 +1106,8 @@ void Brain::playSound(string soundName, double blockMsecs, bool allowRepeat)
 bool Brain::speak(string text, bool allowRepeat)
 {
     auto log_ = [=](string msg) {
-        // log->setTimeNow();
-        // log->log("debug/speak", rerun::TextLog(msg));
+        log->setTimeNow();
+        log->log("debug/speak", rerun::TextLog(format("status=%s text=%s", msg.c_str(), text.c_str())));
     };
 
     const double COOLDOWN_MSECS = 2000.;
@@ -3084,6 +3084,8 @@ void Brain::statusReport() {
     static string lastRobotStateReport = "";
     bool robotStateSpoken = false;
     if (lastRobotStateReport != robotState) {
+        log->setTimeNow();
+        log->log("debug/robot_state_speech", rerun::TextLog(format("state=%s speech=%s", robotState.c_str(), robotStateSpeech.c_str())));
         robotStateSpoken = speak(robotStateSpeech);
         if (robotStateSpoken) lastRobotStateReport = robotState;
     }
