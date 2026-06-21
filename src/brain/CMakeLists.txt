@@ -39,19 +39,46 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 ament_export_dependencies(rosidl_default_runtime)
 
 # source files
-file(GLOB SOURCE_FILES src/*.cpp)
-add_executable(brain_node ${SOURCE_FILES})
+set(BRAIN_LOCATOR_SOURCES
+  src/locator.cpp
+)
+
+set(BRAIN_DECISION_SOURCES
+  src/brain_tree.cpp
+)
+
+set(BRAIN_NODE_SOURCES
+  src/main.cpp
+  src/brain.cpp
+  src/brain_communication.cpp
+  src/brain_config.cpp
+  src/brain_data.cpp
+  src/brain_log.cpp
+  src/robot_client.cpp
+)
+
+add_library(brain_locator ${BRAIN_LOCATOR_SOURCES})
+add_library(brain_decision ${BRAIN_DECISION_SOURCES})
+add_executable(brain_node ${BRAIN_NODE_SOURCES})
 
 # otherwise connot find msg in same pkg 
 # Find the typesupport target
 rosidl_get_typesupport_target(typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 # Link the typesupport target to your project
+target_link_libraries(brain_locator ${typesupport_target})
+target_link_libraries(brain_decision ${typesupport_target})
 target_link_libraries(brain_node ${typesupport_target})
 
 
+set_property(TARGET brain_locator PROPERTY CXX_STANDARD 17)
+set_property(TARGET brain_decision PROPERTY CXX_STANDARD 17)
 set_property(TARGET brain_node PROPERTY CXX_STANDARD 17)
 
-target_link_libraries(brain_node rerun_sdk ${OpenCV_LIBS} yaml-cpp) 
+target_link_libraries(brain_locator rerun_sdk ${OpenCV_LIBS} yaml-cpp)
+target_link_libraries(brain_decision rerun_sdk ${OpenCV_LIBS} yaml-cpp)
+target_link_libraries(brain_node rerun_sdk ${OpenCV_LIBS} yaml-cpp brain_locator brain_decision)
+target_link_libraries(brain_locator ${backward_ros_LIBRARIES})
+target_link_libraries(brain_decision ${backward_ros_LIBRARIES})
 target_link_libraries(brain_node ${backward_ros_LIBRARIES})
 include_directories(${geometry_msgs_INCLUDE_DIRS})
 include_directories(${std_msgs_INCLUDE_DIRS})
@@ -62,13 +89,25 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-narrowing -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers -Wno-unused-variable")
 
+ament_target_dependencies(brain_locator rclcpp rosidl_typesupport_cpp std_msgs sensor_msgs behaviortree_cpp booster_interface vision_interface game_controller_interface booster_msgs tf2 tf2_ros tf2_geometry_msgs)
+ament_target_dependencies(brain_decision rclcpp rosidl_typesupport_cpp std_msgs sensor_msgs behaviortree_cpp booster_interface vision_interface game_controller_interface booster_msgs tf2 tf2_ros tf2_geometry_msgs)
 ament_target_dependencies(brain_node rclcpp rosidl_typesupport_cpp std_msgs sensor_msgs behaviortree_cpp booster_interface vision_interface game_controller_interface booster_msgs tf2 tf2_ros tf2_geometry_msgs)
 
+target_include_directories(brain_locator PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+target_include_directories(brain_decision PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
 target_include_directories(brain_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+target_compile_features(brain_locator PUBLIC c_std_99 cxx_std_17)
+target_compile_features(brain_decision PUBLIC c_std_99 cxx_std_17)
 target_compile_features(brain_node PUBLIC c_std_99 cxx_std_17) # Require C99 and C++17
 install(TARGETS
+  brain_locator
+  brain_decision
   brain_node
   DESTINATION lib/${PROJECT_NAME})
 

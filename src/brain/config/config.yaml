@@ -139,3 +139,4 @@ brain_node:
     sound:
       enable: true 
       sound_pack: "espeak" 
+      debug_logs: true # 临时用于状态播报链路验收, 完成实机测试后建议关闭

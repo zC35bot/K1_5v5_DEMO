@@ -13,7 +13,6 @@
 #include <array>
 #include <utils/math.h>
 #include <opencv2/opencv.hpp> 
-#include <fstream>
 
 using namespace std;
 
@@ -421,20 +420,13 @@ private:
         int n = _t.size();
         if (n == 0) return -1;
         if (useFiltered) {
-            // cout << "_t.size(): " << _t.size() << ", _filteredS.size(): " << _filteredS.size() << endl;
-            ofstream debugFile("debug.log", ios::app);
-            debugFile << "n: " << n << endl;
             double curSpeed = _filteredS.back();
-            int i;
             int startIndex = n - 1; 
-            for (i = n - 2; i >= 0 && i >= n - _maxDataSize; i--) {
-                // debugFile << "i: " << i << ", _filteredS[i]: " << _filteredS[i] << ", curSpeed: " << curSpeed << endl;
+            for (int i = n - 2; i >= 0 && i >= n - _maxDataSize; i--) {
                 if (_filteredS[i] < curSpeed - 1e-6)  break;
-                //else
                 curSpeed = _filteredS[i];
                 startIndex = i;
             }
-            debugFile.close();
             return startIndex;
         }
         
@@ -540,4 +532,3 @@ private:
         }
     }
 };
-

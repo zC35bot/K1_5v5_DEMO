@@ -308,5 +308,6 @@ void BrainConfig::print(ostream &os)
     os << "Sound:" << endl;
     os << "    enable = " << soundEnable << endl;
     os << "    soundPack = " << soundPack << endl;
+    os << "    debugLogs = " << soundDebugLogs << endl;
     os << "----------------------------------------" << endl;
 }

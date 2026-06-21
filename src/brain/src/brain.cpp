@@ -69,6 +69,12 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<double>("strategy.auto_visual_kick_enable_angle", 0.8);
     declare_parameter<bool>("strategy.enable_auto_visual_defend", false);
 
+    declare_parameter<double>("ball_predictor.step_interval", 100.0);
+    declare_parameter<int>("ball_predictor.step_cnt", 50);
+    declare_parameter<int>("ball_predictor.linear_steps", 5);
+    declare_parameter<double>("ball_predictor.linear_rsq_threshold", 0.98);
+    declare_parameter<double>("ball_predictor.acceleration", -0.4);
+
     declare_parameter<bool>("strategy.power_shoot.enable", false);
     declare_parameter<bool>("strategy.power_shoot.use_for_kickoff", false);
     declare_parameter<double>("strategy.power_shoot.xmin", 0.5);
@@ -121,6 +127,7 @@ Brain::Brain() : rclcpp::Node("brain_node")
 
     declare_parameter<bool>("sound.enable", false);
     declare_parameter<string>("sound.sound_pack", "espeak");
+    declare_parameter<bool>("sound.debug_logs", false);
 
     declare_parameter<string>("vision.image_topic", "/camera/camera/color/image_raw");
     declare_parameter<string>("vision.depth_image_topic", "/camera/camera/aligned_depth_to_color/image_raw");
@@ -151,6 +158,7 @@ void Brain::init()
 
     data = std::make_shared<BrainData>();
     locator = std::make_shared<Locator>();
+    ballPredictor = std::make_shared<PosPredictor>(get_clock());
     log = std::make_shared<BrainLog>(this);
     tree = std::make_shared<BrainTree>(this);
     client = std::make_shared<RobotClient>(this);
@@ -250,6 +258,7 @@ void Brain::loadConfig()
 
     get_parameter("sound.enable", config->soundEnable);
     get_parameter("sound.sound_pack", config->soundPack);
+    get_parameter("sound.debug_logs", config->soundDebugLogs);
 
     get_parameter("tree_file_path", config->treeFilePath);
 
@@ -316,6 +325,7 @@ void Brain::tick()
     updateLogFile();
     
     updateMemory();
+    updateBallPrediction();
     handleSpecialStates();
     handleCooperation();
 
@@ -436,7 +446,7 @@ void Brain::handleCooperation() {
             auto color = 0x00FFFFFF;
             if (!tmStatus.isAlive) color = 0x006666FF;
             else if (!tmStatus.isLead) color = 0x00CCCCFF;
-            string label = format("ID: %d, Cost: %.1f", tmId, tmStatus.cost);
+            string label = format("ID: %d, Cost: %.1f, State: %s", tmId, tmStatus.cost, robotStateCodeName(tmStatus.robotState).c_str());
             log->logRobot(format("field/teammate-%d", tmId).c_str(), tmStatus.robotPoseToField, color, label);
             log->logBall(
             format("tm_ball-%d", tmId).c_str(),
@@ -987,6 +997,204 @@ void Brain::updateBallOut() {
     tree->setEntry<bool>("ball_out", isBallOut(threshold, 10.0) && data->ball.range < range); // 严格通过定位判断是否出界
 }
 
+void Brain::updateBallPrediction()
+{
+    auto now = get_clock()->now();
+    auto clearPredictionView = [this]() {
+        log->setTimeNow();
+        log->log("field/ball_prediction", rerun::Clear::FLAT);
+        log->log("field/ball_breach_point", rerun::Clear::FLAT);
+        log->log("field/ball_intercept_point", rerun::Clear::FLAT);
+    };
+
+    data->predictedBallPos.clear();
+    data->ballPosPredictTime = now;
+    data->ballWillBreach = false;
+    data->ballBreachPoint = {data->ball.posToField.x, data->ball.posToField.y};
+    data->ballBreachTime = now;
+    data->ballInterceptPoint = {data->ball.posToField.x, data->ball.posToField.y};
+    data->ballInterceptTime = now;
+    tree->setEntry<bool>("ball_will_breach", false);
+    log->setTimeNow();
+    log->log("performance/ball_will_breach", rerun::Scalar(0));
+
+    if (!ballPredictor || !tree->getEntry<bool>("ball_location_known")) {
+        clearPredictionView();
+        return;
+    }
+
+    double stepIntervalMsecs = 100.0;
+    int stepCnt = 50;
+    int linearSteps = 5;
+    double linearRsqThreshold = 0.98;
+    double acceleration = -0.4;
+    get_parameter("ball_predictor.step_interval", stepIntervalMsecs);
+    get_parameter("ball_predictor.step_cnt", stepCnt);
+    get_parameter("ball_predictor.linear_steps", linearSteps);
+    get_parameter("ball_predictor.linear_rsq_threshold", linearRsqThreshold);
+    get_parameter("ball_predictor.acceleration", acceleration);
+
+    const double maxSourceAgeMsecs = max(300.0, stepIntervalMsecs * 2.0);
+    if (msecsSince(data->ball.timePoint) > maxSourceAgeMsecs) {
+        clearPredictionView();
+        log->setTimeNow();
+        log->log("debug/ball_prediction", rerun::TextLog(format("skip: source too old age=%.0fms max=%.0fms", msecsSince(data->ball.timePoint), maxSourceAgeMsecs)));
+        return;
+    }
+
+    vector<array<double, 2>> predictions;
+    bool predicted = false;
+    string predictSource = "filtered";
+    string predictInfo;
+
+    tie(predictions, predicted, predictInfo) = ballPredictor->predict_filtered(
+        stepIntervalMsecs,
+        stepCnt,
+        acceleration,
+        max(3, linearSteps)
+    );
+
+    if (!predicted || predictions.empty()) {
+        predictSource = "linear";
+        tie(predictions, predicted, predictInfo) = ballPredictor->predict_linear(
+            stepIntervalMsecs,
+            stepCnt,
+            acceleration,
+            max(3, linearSteps),
+            linearRsqThreshold
+        );
+    }
+
+    if (!predicted || predictions.empty()) {
+        clearPredictionView();
+        log->setTimeNow();
+        log->log("debug/ball_prediction", rerun::TextLog(format("unavailable: source=%s info=%s", predictSource.c_str(), predictInfo.c_str())));
+        return;
+    }
+
+    data->predictedBallPos = predictions;
+    data->ballPosPredictTime = now;
+
+    vector<rerun::Vec2D> predictionPoints;
+    predictionPoints.reserve(predictions.size());
+    for (const auto &prediction : predictions) {
+        predictionPoints.push_back(rerun::Vec2D{prediction[0], -prediction[1]});
+    }
+
+    log->setTimeNow();
+    log->log(
+        "field/ball_prediction",
+        rerun::Points2D(predictionPoints)
+            .with_colors({0xFFA500FF})
+            .with_radii({0.04})
+    );
+
+    const auto &fd = config->fieldDimensions;
+    const double defendLineX = max(data->robotPoseToField.x, -fd.length / 2.0 + min(1.0, fd.goalAreaLength));
+    const double defendHalfWidth = fd.penaltyAreaWidth / 2.0 + 0.3;
+    const bool movingTowardSelfGoal = predictions.back()[0] < data->ball.posToField.x - 0.05;
+
+    bool breachFound = false;
+    for (size_t i = 1; i < predictions.size(); ++i) {
+        const auto &p0 = predictions[i - 1];
+        const auto &p1 = predictions[i];
+        const double dx = p1[0] - p0[0];
+        if (fabs(dx) < 1e-6) {
+            continue;
+        }
+        const bool crossesDefendLine = (p0[0] - defendLineX) * (p1[0] - defendLineX) <= 0.0;
+        if (!crossesDefendLine) {
+            continue;
+        }
+
+        const double ratio = (defendLineX - p0[0]) / dx;
+        if (ratio < 0.0 || ratio > 1.0) {
+            continue;
+        }
+
+        const double breachY = p0[1] + (p1[1] - p0[1]) * ratio;
+        if (!movingTowardSelfGoal || fabs(breachY) > defendHalfWidth) {
+            continue;
+        }
+
+        data->ballWillBreach = true;
+        data->ballBreachPoint = {defendLineX, breachY};
+        data->ballInterceptPoint = data->ballBreachPoint;
+        const double breachSecs = stepIntervalMsecs / 1000.0 * (static_cast<double>(i - 1) + ratio);
+        data->ballBreachTime = data->ball.timePoint + rclcpp::Duration::from_seconds(breachSecs);
+        data->ballInterceptTime = data->ballBreachTime;
+        breachFound = true;
+        break;
+    }
+
+    if (!breachFound) {
+        double minRobotDist = 1e9;
+        int closestIdx = -1;
+        for (size_t i = 0; i < predictions.size(); ++i) {
+            Pose2D predictedFieldPose{predictions[i][0], predictions[i][1], 0.0};
+            auto predictedRobotPose = data->field2robot(predictedFieldPose);
+            if (predictedRobotPose.x < -0.1 || predictedRobotPose.x > 2.0) {
+                continue;
+            }
+
+            const double robotDist = norm(predictedRobotPose.x, predictedRobotPose.y);
+            if (robotDist < minRobotDist) {
+                minRobotDist = robotDist;
+                closestIdx = static_cast<int>(i);
+            }
+        }
+
+        if (movingTowardSelfGoal && closestIdx >= 0 && minRobotDist < 0.45) {
+            data->ballWillBreach = true;
+            data->ballBreachPoint = {predictions[closestIdx][0], predictions[closestIdx][1]};
+            data->ballInterceptPoint = data->ballBreachPoint;
+            const double breachSecs = stepIntervalMsecs / 1000.0 * static_cast<double>(closestIdx);
+            data->ballBreachTime = data->ball.timePoint + rclcpp::Duration::from_seconds(breachSecs);
+            data->ballInterceptTime = data->ballBreachTime;
+            breachFound = true;
+        }
+    }
+
+    tree->setEntry<bool>("ball_will_breach", data->ballWillBreach);
+    log->setTimeNow();
+    log->log("performance/ball_will_breach", rerun::Scalar(data->ballWillBreach ? 1.0 : 0.0));
+
+    if (data->ballWillBreach) {
+        log->log(
+            "field/ball_breach_point",
+            rerun::Points2D({{data->ballBreachPoint.x, -data->ballBreachPoint.y}})
+                .with_colors({0xFF3333FF})
+                .with_radii({0.08})
+                .with_labels({format("t=%.2fs", max(0.0, (data->ballBreachTime - now).seconds()))})
+        );
+        log->log(
+            "field/ball_intercept_point",
+            rerun::Points2D({{data->ballInterceptPoint.x, -data->ballInterceptPoint.y}})
+                .with_colors({0x33FF33FF})
+                .with_radii({0.10})
+                .with_labels({format("line=%.2f", defendLineX)})
+        );
+    } else {
+        log->log("field/ball_breach_point", rerun::Clear::FLAT);
+        log->log("field/ball_intercept_point", rerun::Clear::FLAT);
+    }
+
+    log->setTimeNow();
+    log->log(
+        "debug/ball_prediction",
+        rerun::TextLog(format(
+            "source=%s points=%d moving_to_self_goal=%d defend_line_x=%.2f will_breach=%d intercept=(%.2f, %.2f)",
+            predictSource.c_str(),
+            static_cast<int>(predictions.size()),
+            movingTowardSelfGoal,
+            defendLineX,
+            data->ballWillBreach,
+            data->ballInterceptPoint.x,
+            data->ballInterceptPoint.y
+        ))
+    );
+}
+
 double Brain::distToBorder() {
     vector<Line> borders;
     auto fd = config->fieldDimensions;
@@ -1106,6 +1314,7 @@ void Brain::playSound(string soundName, double blockMsecs, bool allowRepeat)
 bool Brain::speak(string text, bool allowRepeat)
 {
     auto log_ = [=](string msg) {
+        if (!config->soundDebugLogs) return;
         log->setTimeNow();
         log->log("debug/speak", rerun::TextLog(format("status=%s text=%s", msg.c_str(), text.c_str())));
     };
@@ -1161,6 +1370,82 @@ rclcpp::Time Brain::timePointFromHeader(std_msgs::msg::Header header) {
     }
     return rclcpp::Time(sec, nanosec, RCL_ROS_TIME); // should not crash
     // return rclcpp::Time(stamp.sec, stamp.nanosec, RCL_ROS_TIME);  // should crash sometimes
+}
+
+int Brain::getRobotStateCode()
+{
+    string decision = tree->getEntry<string>("decision");
+    string playerRole = tree->getEntry<string>("player_role");
+    string goalieMode = tree->getEntry<string>("goalie_mode");
+    int controlState = tree->getEntry<int>("control_state");
+    bool ballKnown = tree->getEntry<bool>("ball_location_known");
+    bool tmBallPosReliable = tree->getEntry<bool>("tm_ball_pos_reliable");
+    bool waitForOpponentKickoff = tree->getEntry<bool>("wait_for_opponent_kickoff");
+    bool isUnderPenalty = tree->getEntry<bool>("gc_is_under_penalty");
+
+    if (controlState == 0) return ROBOT_STATE_WAITING_START;
+    if (controlState == 1) return ROBOT_STATE_MANUAL;
+    if (controlState == 2) return ROBOT_STATE_ENTERING_FIELD;
+    if (isUnderPenalty) return ROBOT_STATE_PENALIZED;
+    if (waitForOpponentKickoff) return ROBOT_STATE_WAIT_OPPONENT_KICKOFF;
+    if (decision == "intercept") return ROBOT_STATE_INTERCEPT;
+    if (playerRole == "goal_keeper" && goalieMode == "guard") return ROBOT_STATE_GOALIE_GUARD;
+    if (decision == "find") return ROBOT_STATE_FIND_BALL;
+    if (decision == "chase") return ROBOT_STATE_CHASE_BALL;
+    if (decision == "adjust") return ROBOT_STATE_ADJUST_BALL;
+    if (decision == "kick" || decision == "safe_shoot") return ROBOT_STATE_KICK_BALL;
+    if (decision == "cross") return ROBOT_STATE_CROSS_BALL;
+    if (decision == "auto_visual_kick") return ROBOT_STATE_VISUAL_KICK;
+    if (decision == "assist") return ROBOT_STATE_ASSIST;
+    if (decision == "retreat") return ROBOT_STATE_RETREAT;
+    if (ballKnown || tmBallPosReliable || data->ballDetected) return ROBOT_STATE_BALL_FOUND;
+    return ROBOT_STATE_UNKNOWN;
+}
+
+string Brain::getRobotStateText()
+{
+    switch (getRobotStateCode()) {
+    case ROBOT_STATE_WAITING_START: return string(u8"等待启动");
+    case ROBOT_STATE_MANUAL: return string(u8"手动模式");
+    case ROBOT_STATE_ENTERING_FIELD: return string(u8"入场定位中");
+    case ROBOT_STATE_PENALIZED: return string(u8"罚下/重新入场中");
+    case ROBOT_STATE_WAIT_OPPONENT_KICKOFF: return string(u8"等待对方开球");
+    case ROBOT_STATE_GOALIE_GUARD: return string(u8"守门待命中");
+    case ROBOT_STATE_FIND_BALL: return string(u8"正在找球");
+    case ROBOT_STATE_BALL_FOUND: return string(u8"已找到球");
+    case ROBOT_STATE_CHASE_BALL: return string(u8"正在追球");
+    case ROBOT_STATE_ADJUST_BALL: return string(u8"已追到球，正在调整");
+    case ROBOT_STATE_KICK_BALL: return string(u8"已追到球，正在踢球");
+    case ROBOT_STATE_CROSS_BALL: return string(u8"已追到球，正在传球");
+    case ROBOT_STATE_VISUAL_KICK: return string(u8"视觉踢球中");
+    case ROBOT_STATE_ASSIST: return string(u8"协防/辅助中");
+    case ROBOT_STATE_RETREAT: return string(u8"回撤守门中");
+    case ROBOT_STATE_INTERCEPT: return string(u8"守门拦截中");
+    default: return string(u8"状态未知");
+    }
+}
+
+string Brain::getRobotStateSpeech(int robotStateCode)
+{
+    switch (robotStateCode) {
+    case ROBOT_STATE_WAITING_START: return "waiting to start";
+    case ROBOT_STATE_MANUAL: return "manual mode";
+    case ROBOT_STATE_ENTERING_FIELD: return "entering field and localizing";
+    case ROBOT_STATE_PENALIZED: return "penalized and reentering field";
+    case ROBOT_STATE_WAIT_OPPONENT_KICKOFF: return "waiting for opponent kickoff";
+    case ROBOT_STATE_GOALIE_GUARD: return "goalkeeper guarding";
+    case ROBOT_STATE_FIND_BALL: return "searching for the ball";
+    case ROBOT_STATE_BALL_FOUND: return "ball found";
+    case ROBOT_STATE_CHASE_BALL: return "chasing the ball";
+    case ROBOT_STATE_ADJUST_BALL: return "ball reached, adjusting";
+    case ROBOT_STATE_KICK_BALL: return "ball reached, kicking";
+    case ROBOT_STATE_CROSS_BALL: return "ball reached, passing";
+    case ROBOT_STATE_VISUAL_KICK: return "visual kick in progress";
+    case ROBOT_STATE_ASSIST: return "assisting";
+    case ROBOT_STATE_RETREAT: return "retreating to defend goal";
+    case ROBOT_STATE_INTERCEPT: return "goalkeeper intercepting";
+    default: return "state unknown";
+    }
 }
 
 
@@ -2151,6 +2436,14 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
         data->ball = ballObjs[indexRealBall];
         data->ball.confidence = bestConfidence;
         data->ballEffectiveConfidence = bestConfidence;
+        if (ballPredictor) {
+            ballPredictor->add(
+                data->ball.timePoint,
+                data->ball.posToField.x,
+                data->ball.posToField.y,
+                max(0.1, data->ball.range)
+            );
+        }
 
         tree->setEntry<bool>("ball_location_known", true);
         updateBallOut();
@@ -3041,51 +3334,22 @@ void Brain::statusReport() {
     bool tmBallPosReliable = tree->getEntry<bool>("tm_ball_pos_reliable");
     bool waitForOpponentKickoff = tree->getEntry<bool>("wait_for_opponent_kickoff");
     bool isUnderPenalty = tree->getEntry<bool>("gc_is_under_penalty");
-    string robotState =
-        controlState == 0 ? string(u8"等待启动") :
-        controlState == 1 ? string(u8"手动模式") :
-        controlState == 2 ? string(u8"入场定位中") :
-        isUnderPenalty ? string(u8"罚下/重新入场中") :
-        waitForOpponentKickoff ? string(u8"等待对方开球") :
-        (playerRole == "goal_keeper" && goalieMode == "guard") ? string(u8"守门待命中") :
-        decision == "find" ? string(u8"正在找球") :
-        decision == "chase" ? string(u8"正在追球") :
-        decision == "adjust" ? string(u8"已追到球，正在调整") :
-        decision == "kick" ? string(u8"已追到球，正在踢球") :
-        decision == "cross" ? string(u8"已追到球，正在传球") :
-        decision == "auto_visual_kick" ? string(u8"视觉踢球中") :
-        decision == "assist" ? string(u8"协防/辅助中") :
-        decision == "retreat" ? string(u8"回撤守门中") :
-        (ballKnown || tmBallPosReliable || data->ballDetected) ? string(u8"已找到球") :
-        string(u8"状态未知");
+    int robotStateCode = getRobotStateCode();
+    string robotState = getRobotStateText();
 
     log->setTimeNow();
-    log->log("debug/robot_state", rerun::TextLog(format("state=%s role=%s decision=%s control_state=%d ball_known=%d ball_detected=%d tm_ball_pos_reliable=%d wait_for_opponent_kickoff=%d goalie_mode=%s under_penalty=%d", robotState.c_str(), playerRole.c_str(), decision.c_str(), controlState, ballKnown, data->ballDetected, tmBallPosReliable, waitForOpponentKickoff, goalieMode.c_str(), isUnderPenalty)));
+    log->log("debug/robot_state", rerun::TextLog(format("state=%s code=%s role=%s decision=%s control_state=%d ball_known=%d ball_detected=%d tm_ball_pos_reliable=%d wait_for_opponent_kickoff=%d goalie_mode=%s under_penalty=%d", robotState.c_str(), robotStateCodeName(robotStateCode).c_str(), playerRole.c_str(), decision.c_str(), controlState, ballKnown, data->ballDetected, tmBallPosReliable, waitForOpponentKickoff, goalieMode.c_str(), isUnderPenalty)));
 
     if (!config->soundEnable || config->soundPack != "espeak") return;
 
-    string robotStateSpeech =
-        controlState == 0 ? "waiting to start" :
-        controlState == 1 ? "manual mode" :
-        controlState == 2 ? "entering field and localizing" :
-        isUnderPenalty ? "penalized and reentering field" :
-        waitForOpponentKickoff ? "waiting for opponent kickoff" :
-        (playerRole == "goal_keeper" && goalieMode == "guard") ? "goalkeeper guarding" :
-        decision == "find" ? "searching for the ball" :
-        decision == "chase" ? "chasing the ball" :
-        decision == "adjust" ? "ball reached, adjusting" :
-        decision == "kick" ? "ball reached, kicking" :
-        decision == "cross" ? "ball reached, passing" :
-        decision == "auto_visual_kick" ? "visual kick in progress" :
-        decision == "assist" ? "assisting" :
-        decision == "retreat" ? "retreating to defend goal" :
-        (ballKnown || tmBallPosReliable || data->ballDetected) ? "ball found" :
-        "state unknown";
+    string robotStateSpeech = getRobotStateSpeech(robotStateCode);
     static string lastRobotStateReport = "";
     bool robotStateSpoken = false;
     if (lastRobotStateReport != robotState) {
-        log->setTimeNow();
-        log->log("debug/robot_state_speech", rerun::TextLog(format("state=%s speech=%s", robotState.c_str(), robotStateSpeech.c_str())));
+        if (config->soundDebugLogs) {
+            log->setTimeNow();
+            log->log("debug/robot_state_speech", rerun::TextLog(format("state=%s speech=%s", robotState.c_str(), robotStateSpeech.c_str())));
+        }
         robotStateSpoken = speak(robotStateSpeech);
         if (robotStateSpoken) lastRobotStateReport = robotState;
     }
@@ -3211,6 +3475,7 @@ string Brain::getComLogString() {
             ss << GREEN_CODE << "YES" << CYAN_CODE;
         else
             ss << RED_CODE << "NO" << CYAN_CODE;
+        ss << "\tState: " << robotStateCodeName(status.robotState);
         ss << "\tCMD: " << format("[%d]%d", status.cmdId, status.cmd);
         ss << "\tLag: " << format("%.0f", msecsSince(status.timeLastCom)) << "ms" << "\n";
     }

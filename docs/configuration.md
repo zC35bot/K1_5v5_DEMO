@@ -302,11 +302,6 @@
 
 以下字段出现在 `src/brain/config/config.yaml` 中，但当前代码没有确认到实际消费：
 
-- `ball_predictor.step_interval`
-- `ball_predictor.step_cnt`
-- `ball_predictor.linear_steps`
-- `ball_predictor.linear_rsq_threshold`
-- `ball_predictor.acceleration`
 - `strategy.abort_shoot_when_ball_moved`
 - `strategy.limit_speed_near_border`
 - `strategy.near_border_speed_limit`
@@ -316,6 +311,7 @@
 
 说明：
 
+- `ball_predictor.*` 已经接到 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1031) 的 `updateBallPrediction()`，不再属于“YAML 写了但完全未接线”
 - `rerunLog.enable` 在代码里甚至只剩一行注释
 - 这些字段不要只改 YAML 就期待结果变化
 

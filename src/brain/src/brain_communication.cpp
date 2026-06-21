@@ -367,9 +367,10 @@ void BrainCommunication::unicastCommunication() {
         msg.robotPoseToField = brain->data->robotPoseToField;
         msg.kickDir = brain->data->kickDir;
         msg.thetaRb = brain->data->robotBallAngleToField;
+        msg.robotState = brain->getRobotStateCode();
         msg.cmdId = brain->data->tmMyCmdId;
         msg.cmd = brain->data->tmMyCmd;
-        log(format("ImAlive: %d, ImLead: %d, myCost: %.1f, myCmdId: %d, myCmd: %d", msg.isAlive, msg.isLead, msg.cost, msg.cmdId, msg.cmd));
+        log(format("ImAlive: %d, ImLead: %d, myCost: %.1f, myState: %s, myCmdId: %d, myCmd: %d", msg.isAlive, msg.isLead, msg.cost, robotStateCodeName(msg.robotState).c_str(), msg.cmdId, msg.cmd));
 
         std::lock_guard<std::mutex> lock(_teammate_addresses_mutex);
         for (auto it = _teammate_addresses.begin(); it != _teammate_addresses.end(); ++it) {
@@ -513,7 +514,7 @@ void BrainCommunication::spinCommunicationReceiver() {
             continue;
         }
 
-        log(format("TMID: %.d, alive: %d, lead: %d, cost: %.1f, CmdId: %d, Cmd: %d", msg.playerId, msg.isAlive, msg.isLead, msg.cost, msg.cmdId, msg.cmd));
+        log(format("TMID: %.d, alive: %d, lead: %d, cost: %.1f, state: %s, CmdId: %d, Cmd: %d", msg.playerId, msg.isAlive, msg.isLead, msg.cost, robotStateCodeName(msg.robotState).c_str(), msg.cmdId, msg.cmd));
 
         TMStatus &tmStatus = brain->data->tmStatus[tmIdx];
         
@@ -529,6 +530,7 @@ void BrainCommunication::spinCommunicationReceiver() {
         tmStatus.robotPoseToField = msg.robotPoseToField;
         tmStatus.kickDir = msg.kickDir;
         tmStatus.thetaRb = msg.thetaRb;
+        tmStatus.robotState = msg.robotState;
         tmStatus.timeLastCom = brain->get_clock()->now();
         tmStatus.cmd = msg.cmd;
         tmStatus.cmdId = msg.cmdId;

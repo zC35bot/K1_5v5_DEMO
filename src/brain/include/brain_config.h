@@ -112,6 +112,7 @@ public:
     // sound 参数
     bool soundEnable = false;
     string soundPack = "espeak"; // espeak 或 语音名名称, 假设语音包名称为 <name>, 相应的语音文件需放到: sound_play/sounds/<name>/ 目录下
+    bool soundDebugLogs = false; // 是否开启语音状态相关的临时调试日志, 如 debug/speak 与 debug/robot_state_speech
 
     // 计算地面标线与标志点的理论值
     void calcMapLines();

@@ -188,6 +188,48 @@ struct RobotRecoveryStateData {
     uint8_t current_planner_index;
 };
 
+enum RobotStateCode {
+    ROBOT_STATE_UNKNOWN = 0,
+    ROBOT_STATE_WAITING_START = 1,
+    ROBOT_STATE_MANUAL = 2,
+    ROBOT_STATE_ENTERING_FIELD = 3,
+    ROBOT_STATE_PENALIZED = 4,
+    ROBOT_STATE_WAIT_OPPONENT_KICKOFF = 5,
+    ROBOT_STATE_GOALIE_GUARD = 6,
+    ROBOT_STATE_FIND_BALL = 7,
+    ROBOT_STATE_BALL_FOUND = 8,
+    ROBOT_STATE_CHASE_BALL = 9,
+    ROBOT_STATE_ADJUST_BALL = 10,
+    ROBOT_STATE_KICK_BALL = 11,
+    ROBOT_STATE_CROSS_BALL = 12,
+    ROBOT_STATE_VISUAL_KICK = 13,
+    ROBOT_STATE_ASSIST = 14,
+    ROBOT_STATE_RETREAT = 15,
+    ROBOT_STATE_INTERCEPT = 16,
+};
+
+inline string robotStateCodeName(int code) {
+    switch (code) {
+    case ROBOT_STATE_WAITING_START: return "waiting_start";
+    case ROBOT_STATE_MANUAL: return "manual";
+    case ROBOT_STATE_ENTERING_FIELD: return "entering_field";
+    case ROBOT_STATE_PENALIZED: return "penalized";
+    case ROBOT_STATE_WAIT_OPPONENT_KICKOFF: return "wait_opponent_kickoff";
+    case ROBOT_STATE_GOALIE_GUARD: return "goalie_guard";
+    case ROBOT_STATE_FIND_BALL: return "find_ball";
+    case ROBOT_STATE_BALL_FOUND: return "ball_found";
+    case ROBOT_STATE_CHASE_BALL: return "chase_ball";
+    case ROBOT_STATE_ADJUST_BALL: return "adjust_ball";
+    case ROBOT_STATE_KICK_BALL: return "kick_ball";
+    case ROBOT_STATE_CROSS_BALL: return "cross_ball";
+    case ROBOT_STATE_VISUAL_KICK: return "visual_kick";
+    case ROBOT_STATE_ASSIST: return "assist";
+    case ROBOT_STATE_RETREAT: return "retreat";
+    case ROBOT_STATE_INTERCEPT: return "intercept";
+    default: return "unknown";
+    }
+}
+
 // 用于存储队友间通讯
 struct TMStatus {
     string role = "not initialized"; // triker, goal_keeper
@@ -202,6 +244,7 @@ struct TMStatus {
     Pose2D robotPoseToField;
     double kickDir = 0.; // 预计的踢球方向
     double thetaRb = 0.; // 机器人到球的角度, field 坐标系
+    int robotState = ROBOT_STATE_UNKNOWN; // 队友当前高层状态编码, 与 robotStateCodeName 对应
     int cmd = 0; // 最后一次发出的指令 
     int cmdId = 0; // 最后一次发出的指令 ID
     rclcpp::Time timeLastCom; // 最后一次通讯时间

@@ -4,9 +4,9 @@
 
 相关实现入口：
 
-- 主循环在 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:324) 先执行 `tree->tick()`，再执行状态日志与状态播报，因此 `decision` 不是上一拍旧值。
-- 语音发送函数在 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1106)。
-- 状态汇总、`rerun` 转发、状态播报映射在 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3035)。
+- 主循环在 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:319) 中先做 `updateMemory()`、`updateBallPrediction()`、`tree->tick()`，再执行状态日志与状态播报，因此 `decision` 用的是本拍结果。
+- 语音发送函数在 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1297)。
+- 状态汇总、`rerun` 转发、状态播报映射在 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1375)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1405)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1428) 和 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3328)。
 - 声音配置默认在 [src/brain/config/config.yaml](../src/brain/config/config.yaml:139)。
 - `launch` 会加载 [src/brain/config/config.yaml](../src/brain/config/config.yaml:139) 和可选的 [src/brain/launch/launch.py](../src/brain/launch/launch.py:34) 中指定的 `config_local.yaml`。
 
@@ -22,9 +22,11 @@
 
 以下日志是这轮为了排查“状态播报链路”和“状态到语音映射”临时加的，建议在实机验收完成后评估是否关闭：
 
-- `debug/robot_state`：核心状态摘要，当前更偏正式功能，位置见 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3063)。
-- `debug/robot_state_speech`：状态到英文播报词的映射结果，仅用于核对播报文案，位置见 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3088)。
-- `debug/speak`：TTS 发送诊断，能看到 `published / publisher not found / config not compatible / cooldown in process / repeat not allowed`，位置见 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1110)。
+- `debug/robot_state`：核心状态摘要，当前更偏正式功能，位置见 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3341)。
+- `debug/robot_state_speech`：状态到英文播报词的映射结果，仅用于核对播报文案，位置见 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3351)。
+- `debug/speak`：TTS 发送诊断，能看到 `published / publisher not found / config not compatible / cooldown in process / repeat not allowed`，位置见 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1319)。
+- `debug/ball_prediction`：球路预测摘要与跳过原因，位置见 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1041)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1071)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1184)。
+- `debug/intercept`：守门员拦截动作起始诊断，位置见 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1537)。
 
 建议后续处理原则：
 
@@ -121,8 +123,13 @@
 ### 4.9 守门员状态
 
 - [ ] 守门员 `goalie_mode == "guard"` 时，状态为 `守门待命中`，播报 `goalkeeper guarding`。
+- [ ] 守门员 `decision == "intercept"` 时，状态为 `守门拦截中`，播报 `goalkeeper intercepting`。
 - [ ] 守门员 `decision == "retreat"` 时，状态为 `回撤守门中`，播报 `retreating to defend goal`。
 - [ ] 验证守门员 `guard` 与 `retreat` 的优先级符合预期：当前 `guard` 优先于 `decision` 分支。
+- [ ] 验证守门员拦截入口已经接到比赛树：见 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1111) 和 [src/brain/behavior_trees/subtrees/subtree_goal_keeper_play.xml](../src/brain/behavior_trees/subtrees/subtree_goal_keeper_play.xml:38)。
+- [ ] 当 `ball_will_breach == true` 且拦截时间足够近时，`GoalieDecide` 应输出 `intercept`，可结合 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1143) 与 rerun 中的 `debug/ball_prediction` 一起核对。
+- [ ] `Intercept` 开始时，rerun 中应至少出现一次 `debug/intercept = start`，参考 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1528)。
+- [ ] 若 `strategy.use_move_block == false` 且球未进入下蹲距离，`Intercept` 不应立即退出，应保持站立等待到超时，参考 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1580)。
 
 ### 4.10 健康播报不互相抢占
 
@@ -154,22 +161,49 @@
 - [ ] 重新出现测试：球重新进入视野后，状态应恢复到 `已找到球` 或更高优先级动作状态，不应长时间卡在 `正在找球`。
 - [ ] 记录“状态切换错误”到底是由决策逻辑导致，还是由球定位跳变导致。必要时结合 `debug/robot_state`、`field/ball`、`image/detection_boxes` 三者一起看。
 
+### 4.13 球路预测与守门拦截联合测试
+
+- [ ] 在 rerun 中确认 `field/ball_prediction` 持续出现预测点列，参考 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1086)。
+- [ ] 在 rerun 中确认 `performance/ball_will_breach` 会在预计穿越守门拦截线时从 `0` 跳到 `1`，参考 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1160)。
+- [ ] 当预测球路会穿过守门员拦截线时，确认出现 `field/ball_breach_point` 与 `field/ball_intercept_point`，参考 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1164) 和 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1171)。
+- [ ] 当球路不再构成穿越威胁时，确认 `field/ball_breach_point` 与 `field/ball_intercept_point` 会被清空，参考 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1178)。
+- [ ] 对比 `debug/ball_prediction` 中的 `will_breach`、`intercept=(x, y)` 与实际 rerun 点位是否一致，参考 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1184)。
+- [ ] 若球视觉时间戳过旧，确认 `debug/ball_prediction` 会提示 `source too old`，而不是继续沿用陈旧预测，参考 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1041)。
+
+### 4.14 队友状态通信联合测试
+
+- [ ] 两台同版本机器人同时运行时，确认发送端会附带 `robotState`，接收端能恢复队友状态，参考 [src/brain/src/brain_communication.cpp](../src/brain/src/brain_communication.cpp:370) 和 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:449)。
+- [ ] 在 rerun 的 `field/teammate-<id>` 标签中确认能看到 `State: <ascii-name>`，例如 `find / chase / intercept`，参考 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:449)。
+- [ ] 接收日志中应能看到队友状态字符串，参考 [src/brain/src/brain_communication.cpp](../src/brain/src/brain_communication.cpp:517)。
+- [ ] 混跑新旧版本时，若双方通信结构体长度不一致，预期会互相收不到包；实机测试时需要统一升级所有机器人版本。
+
+### 4.15 构建与部署核对
+
+- [ ] 当前构建仍是一个 ROS package：`brain`，包级入口脚本是 [scripts/build_brain.sh](../scripts/build_brain.sh:6)。
+- [ ] `CMake` 内部已拆为 `brain_locator`、`brain_decision`、`brain_node` 三个 target，但不是三个独立 ROS package，参考 [src/brain/CMakeLists.txt](../src/brain/CMakeLists.txt:60)。
+- [ ] Windows 当前环境缺少 `bash` 和 `colcon`，因此本轮未能在本机完成编译验收；后续请在 ROS 构建环境下重新执行包级构建。
+
 ## 5. 现场建议记录项
 
 - [ ] 记录每个状态切换时的真实场景触发条件。
 - [ ] 记录 `rerun` 中 `debug/robot_state` 的文本是否和语音一致。
 - [ ] 记录 `debug/robot_state_speech` 和 `debug/speak` 是否给出了足够的排障信息。
+- [ ] 记录 `debug/ball_prediction` 是否足够解释“为什么触发/没触发拦截”。
 - [ ] 记录是否存在“应该播但没播”的情况，并标注当时距离上一次播报是否小于 2 秒。
 - [ ] 记录是否存在“播报内容正确，但时机晚一拍”的情况。
 - [ ] 记录是否存在“中文状态判断正确，但英文词不自然”的情况，后续可单独优化文案。
 - [ ] 记录球标签主要落在哪种投影模式：`refined_plane / hold_last_valid / fallback_z0`。
 - [ ] 记录静止球时 `field/ball` 是否明显抖动，以及抖动是否会直接诱发状态播报抖动。
+- [ ] 记录 `field/ball_prediction`、`field/ball_breach_point`、`field/ball_intercept_point` 是否与实际球路一致。
+- [ ] 记录队友标签里的 `State: ...` 是否与队友真实行为一致。
 - [ ] 在本轮验收结束后，明确记录是否关闭这两个临时诊断日志：`debug/robot_state_speech`、`debug/speak`。
 
 ## 6. 已知限制
 
 - 当前 TTS 文案使用英文，不是中文语音。
-- 当前 `speak()` 带 2 秒冷却，同一时间窗口内的连续状态跃迁可能不会全部播出，见 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1113)。
+- 当前 `speak()` 带 2 秒冷却，同一时间窗口内的连续状态跃迁可能不会全部播出，见 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1310)。
 - 当前 `brain` 只发布 `/speak` 字符串，是否真正出声还依赖现场的 TTS 消费节点。
 - 当前为了排查问题额外打开了 `debug/robot_state_speech` 和 `debug/speak`；这两个更偏临时诊断用途，实机验收完成后应评估是否关闭。
+- 当前 `debug/intercept` 只记录了启动事件，若后续还要深查拦截过程，可能需要再补更细日志。
+- 当前机器本地没有 `bash` / `colcon`，本轮只完成了代码级静态检查，未完成 ROS 环境下编译验证。
 - 由于当前未在本地接触实体机器人，本清单尚未经过实机验证。

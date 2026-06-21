@@ -1140,10 +1140,22 @@ NodeStatus GoalieDecide::tick()
     auto color = 0xFFFFFFFF; // for log
     bool iKnowBallPos = brain->tree->getEntry<bool>("ball_location_known");
     bool tmBallPosReliable = brain->tree->getEntry<bool>("tm_ball_pos_reliable");
+    bool ballWillBreach = brain->tree->getEntry<bool>("ball_will_breach");
+    double interceptLeadSecs = max(0.0, (brain->data->ballInterceptTime - brain->get_clock()->now()).seconds());
+    bool shouldIntercept =
+        iKnowBallPos
+        && ballWillBreach
+        && brain->data->ball.posToField.x < 0.5
+        && interceptLeadSecs < 3.0;
     if (!(iKnowBallPos || tmBallPosReliable))
     {
         newDecision = "find";
         color = 0x0000FFFF;
+    }
+    else if (shouldIntercept)
+    {
+        newDecision = "intercept";
+        color = 0xFF6600FF;
     }
     else if (brain->data->ball.posToField.x > 0 - static_cast<double>(lastDecision == "retreat"))
     {
@@ -1157,7 +1169,7 @@ NodeStatus GoalieDecide::tick()
                 fabs(brain->data->ball.yawToRobot) < autoVisualKickEnableAngle / 2 &&
                 brain->isFrontRangeClear(-autoVisualKickObstacleAngleThreshold / 2, autoVisualKickObstacleAngleThreshold / 2, autoVisualKickObstacleDistThreshold, 0.035)
             ) {
-    // 自动视觉踢球分支已删除
+        newDecision = "chase"; // 自动视觉防守分支已移除，回退到常规追球
         color = 0xFF00FFFF;
     }
     else if (ballRange > chaseRangeThreshold * (lastDecision == "chase" ? 0.9 : 1.0))
@@ -1178,7 +1190,7 @@ NodeStatus GoalieDecide::tick()
 
     setOutput("decision_out", newDecision);
     brain->log->logToScreen("tree/Decide",
-                            format("Decision: %s ballrange: %.2f ballyaw: %.2f kickDir: %.2f rbDir: %.2f angleIsGood: %d", newDecision.c_str(), ballRange, ballYaw, kickDir, dir_rb_f, angleIsGood),
+                            format("Decision: %s ballrange: %.2f ballyaw: %.2f kickDir: %.2f rbDir: %.2f angleIsGood: %d willBreach: %d interceptLead: %.2f", newDecision.c_str(), ballRange, ballYaw, kickDir, dir_rb_f, angleIsGood, ballWillBreach, interceptLeadSecs),
                             color);
     return NodeStatus::SUCCESS;
 }
@@ -1585,6 +1597,9 @@ NodeStatus Intercept::onRunning()
             log(format("Move: dist: %.1f, theta: %.1f, vx: %.1f, vy: %.1f", dist, theta, vx, vy));
             return NodeStatus::RUNNING;
         }
+
+        brain->client->setVelocity(0, 0, 0);
+        return NodeStatus::RUNNING;
 
     } else if (_state == "squat") {
         log("Squat");

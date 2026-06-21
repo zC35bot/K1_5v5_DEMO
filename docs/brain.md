@@ -149,17 +149,18 @@ Brain 的入口在：
 
 `Brain::tick()` 的顺序非常重要：
 
-1. `logDebugInfo()`
-2. `logLags()`
-3. `statusReport()`
-4. `logStatusToConsole()`
-5. `playSoundForFun()`
-6. `updateLogFile()`
-7. `updateMemory()`
-8. `handleSpecialStates()`
-9. `handleCooperation()`
-10. `pubKickMsg()`
-11. `tree->tick()`
+1. `logLags()`
+2. `logStatusToConsole()`
+3. `updateLogFile()`
+4. `updateMemory()`
+5. `updateBallPrediction()`
+6. `handleSpecialStates()`
+7. `handleCooperation()`
+8. `pubKickMsg()`
+9. `tree->tick()`
+10. `logDebugInfo()`
+11. `statusReport()`
+12. `playSoundForFun()`
 
 这意味着行为树每次执行前，`BrainData` 里的记忆状态、比赛派生状态和协作状态都先被更新。
 
@@ -378,12 +379,15 @@ Brain 的入口在：
 主要决策：
 
 - `find`
+- `intercept`
 - `retreat`
 - `chase`
 - `adjust`
 - `kick`
 
-当 `goalie_mode == guard` 时更多是站位与封堵；`goalie_mode == attack` 时会主动追球或出击。
+当前守门员比赛树已经把 `Intercept` 接入 [src/brain/behavior_trees/subtrees/subtree_goal_keeper_play.xml](../src/brain/behavior_trees/subtrees/subtree_goal_keeper_play.xml:38)。
+`GoalieDecide` 会结合 `ball_will_breach`、预测拦截时间和球场位置切入 `intercept`，实现位置见 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1111)。
+当 `goalie_mode == guard` 时更多是站位与封堵；`goalie_mode == attack` 时会主动追球、拦截或出击。
 
 ### 8.5 定位子树
 
@@ -498,5 +502,5 @@ Brain 的入口在：
 ## 12. 当前版本已知限制
 
 1. `safe_shoot` 决策没有行为树执行分支。
-2. `Intercept` 节点虽然已经注册实现，但在当前主比赛树里没有看到实际调用入口。
+2. `goalie_mode == "guard"` 当前仍缺少明确的主动切入来源，现阶段主要通过 `decision == "intercept"` 走拦截动作。
 3. 一些策略参数在 `config.yaml` 里存在，但并未真正接线到决策逻辑，详见 [参数与修改注意事项](./configuration.md)。

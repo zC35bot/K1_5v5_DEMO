@@ -38,6 +38,7 @@
 #include "brain_tree.h"
 #include "brain_communication.h"
 #include "locator.h"
+#include "posProjector.h"
 #include "robot_client.h"
 
 
@@ -66,6 +67,7 @@ public:
     // locator 对象
     std::shared_ptr<Locator> locator;
     // posProjector 对象，用于预测球的位置
+    std::shared_ptr<PosPredictor> ballPredictor;
 
     // BrainTree 对象，里面包含 BehaviorTree 相关的操作
     std::shared_ptr<BrainTree> tree;
@@ -142,6 +144,12 @@ public:
 
     // 从 msg 的 header 中获取时间点
     rclcpp::Time timePointFromHeader(std_msgs::msg::Header header);
+
+    int getRobotStateCode();
+
+    string getRobotStateText();
+
+    string getRobotStateSpeech(int robotStateCode);
 
     // 播放 sound_play node 的预定义声音, soundName 为声音名, 在 blockMsecs 时间内, 不接受新的声音. allowRepeat 为 false 时, 如果上一次播放的声音与本次播放的相同, 则不重复播放
     void playSound(string soundName, double blockMsecs = 1000, bool allowRepeat = false);

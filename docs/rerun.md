@@ -52,9 +52,14 @@
 | entity_path | 内容 | 触发位置 | 发送频率 |
 | --- | --- | --- | --- |
 | `debug/brain_tick` | 总体状态调试文本 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:2652)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:2655) | 每 tick 一次，约 `100Hz` |
-| `debug/robot_state` | 机器人状态摘要，直接读取已有 `control_state`、`decision`、`ball_location_known`、`tm_ball_pos_reliable`、`wait_for_opponent_kickoff`、`gc_is_under_penalty`、`goalie_mode` 等状态并转发；典型值包括“等待启动 / 正在找球 / 已找到球 / 正在追球 / 已追到球，正在调整 / 已追到球，正在踢球”等 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:324)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3035)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3063) | 每 tick 一次，约 `100Hz`，且在 `tree->tick()` 之后发送，因此 `decision` 不会慢一拍 |
-| `debug/robot_state_speech` | 状态播报候选文本；仅当状态变化时写入，用于核对某个中文状态会映射成哪句英文 TTS | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3086) | 仅在机器人状态变化时发送 |
-| `debug/speak` | TTS 发送诊断，包含 `published / publisher not found / config not compatible / cooldown in process / repeat not allowed` 等原因，便于离线排查“为什么没出声” | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1108) | 每次调用 `speak()` 时按结果发送 |
+| `debug/robot_state` | 机器人状态摘要，直接读取已有 `control_state`、`decision`、`ball_location_known`、`tm_ball_pos_reliable`、`wait_for_opponent_kickoff`、`gc_is_under_penalty`、`goalie_mode` 等状态并转发；现已包含 `intercept -> 守门拦截中` 等状态 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:319)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1375)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3328) | 每 tick 一次，约 `100Hz`，且在 `tree->tick()` 之后发送，因此 `decision` 不会慢一拍 |
+| `debug/robot_state_speech` | 状态播报候选文本；仅当状态变化时写入，用于核对某个中文状态会映射成哪句英文 TTS | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:3351) | 仅在机器人状态变化时发送 |
+| `debug/speak` | TTS 发送诊断，包含 `published / publisher not found / config not compatible / cooldown in process / repeat not allowed` 等原因，便于离线排查“为什么没出声” | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1319) | 每次调用 `speak()` 时按结果发送 |
+| `field/ball_prediction` | 预测球路点列，基于 `PosPredictor` 计算出的未来场地坐标轨迹 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1000)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1086) | 每 tick 一次；无有效预测时会清空 |
+| `field/ball_breach_point` | 预测球路穿过守门拦截线的位置 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1164)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1178) | 仅当 `ballWillBreach=true` 时发送，否则每 tick 清空 |
+| `field/ball_intercept_point` | 守门员建议拦截点 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1171)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1179) | 仅当 `ballWillBreach=true` 时发送，否则每 tick 清空 |
+| `performance/ball_will_breach` | 球路是否预计穿越拦截线的标量，`0/1` | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1019)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1160) | 每 tick 一次 |
+| `debug/ball_prediction` | 球路预测摘要，包括数据源、点数、是否朝自家门移动、是否会穿越、拦截点等；在无可用预测或源数据过旧时也会说明原因 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1041)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1071)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1184) | 每 tick 一次或按条件说明跳过原因 |
 | `debug/my_cost_scalar` | 本机 cost 标量 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:2671) | 每 tick 一次 |
 | `debug/my_lead_scalar` | 本机是否 lead 标量 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:2672) | 每 tick 一次 |
 | `image/detection_lag` | 检测延迟横条 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:2984) | 每 tick 一次 |
@@ -86,7 +91,7 @@
 | entity_path | 内容 | 触发位置 | 发送频率 |
 | --- | --- | --- | --- |
 | `debug/handleCooperation` | 协作状态调试文本 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:401)、[src/brain/src/brain.cpp](../src/brain/src/brain.cpp:404) | 每 tick 多次，约 `100Hz` |
-| `field/teammate-<id>` | 队友场上位姿 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:440) | 每 tick，对每个有效队友一次 |
+| `field/teammate-<id>` | 队友场上位姿；标签内现追加 `State: <ascii-name>`，直接显示最近一次收到的高层状态编码 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:449) | 每 tick，对每个有效队友一次 |
 | `tm_ball-<id>` | 队友上报球位置 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:442) | 每 tick，对每个有效队友一次 |
 | `debug/tm_cost_scalar_<id>` | 队友 cost 标量 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:466) | 每 tick，对每个 alive 队友一次 |
 | `debug/tm_lead_scalar_<id>` | 队友 lead 标量 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:467) | 每 tick，对每个 alive 队友一次 |
@@ -182,10 +187,11 @@
 | `debug/Assist` | Assist 节点调试文本 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:702)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:705) | `Assist` 活跃时每 tick |
 | `field/kick_dir` | 踢球方向箭头 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:875)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:932) | `CalcKickDir` 活跃时每 tick |
 | `debug/striker_decide` | 前锋决策调试文本 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:943)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:946) | `StrikerDecide` 活跃时每 tick |
-| `tree/Decide` | 决策覆盖框 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1096)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1180) | `StrikerDecide` / `GoalieDecide` 活跃时每 tick |
+| `tree/Decide` | 决策覆盖框；守门员分支现会额外显示 `willBreach` 与 `interceptLead`，便于观察何时切入 `intercept` | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1096)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1193) | `StrikerDecide` / `GoalieDecide` 活跃时每 tick |
 | `tree/value_threat` | threat / kick value 覆盖框 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1107) | `StrikerDecide` 活跃时每 tick |
 | `debug/Kick` | 踢球阶段调试文本 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1270)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1274) | `Kick` 活跃时每 tick |
 | `debug/RLVisionKick` | 视觉踢球退出/切换原因 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1379)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1383)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1464) | 条件触发；节点活跃期间可能多次 |
+| `debug/intercept` | 守门员拦截动作起始诊断；当前只在 `Intercept` 启动时写一次 `start` | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1528)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1537) | `Intercept` 启动时一次 |
 | `recovery` | 跌倒恢复状态与事件 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3371)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3374)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3385)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3392)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3401) | `CheckAndStandUp` 活跃时按条件发送 |
 
 ### 13. 自定位相关事件日志
