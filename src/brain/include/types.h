@@ -230,10 +230,28 @@ inline string robotStateCodeName(int code) {
     }
 }
 
+enum TeamRoleCode {
+    TEAM_ROLE_UNKNOWN = 0,
+    TEAM_ROLE_GOALKEEPER = 1,
+    TEAM_ROLE_STRIKER = 2,
+    TEAM_ROLE_SUPPORTER = 3,
+};
+
+inline string teamRoleCodeName(int code) {
+    switch (code) {
+    case TEAM_ROLE_GOALKEEPER: return "goalkeeper";
+    case TEAM_ROLE_STRIKER: return "striker";
+    case TEAM_ROLE_SUPPORTER: return "supporter";
+    default: return "unknown";
+    }
+}
+
 // 用于存储队友间通讯
 struct TMStatus {
     string role = "not initialized"; // triker, goal_keeper
+    int teamRole = TEAM_ROLE_UNKNOWN; // 战术角色: goalkeeper / striker / supporter
     bool isAlive = false; // 是否在场上, 且没有在罚时中, 且通讯没有丢失
+    bool isFallen = false; // 队友是否处于倒地状态
     bool ballDetected = false;
     bool ballLocationKnown = false;
     double ballConfidence = 0.;
@@ -247,6 +265,9 @@ struct TMStatus {
     int robotState = ROBOT_STATE_UNKNOWN; // 队友当前高层状态编码, 与 robotStateCodeName 对应
     int cmd = 0; // 最后一次发出的指令 
     int cmdId = 0; // 最后一次发出的指令 ID
+    int assignedStrikerId = 0; // 守门员当前判定的主攻球员 id
+    int assignedSupporterId = 0; // 守门员当前判定的辅助球员 id
+    int captainDecisionId = 0; // 守门员角色分配决策序号
     rclcpp::Time timeLastCom; // 最后一次通讯时间
 };
 

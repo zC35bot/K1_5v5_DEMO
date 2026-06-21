@@ -356,7 +356,9 @@ void BrainCommunication::unicastCommunication() {
         msg.teamId = brain->config->teamId;
         msg.playerId = brain->config->playerId;
         msg.playerRole = brain->tree->getEntry<string>("player_role") == "striker" ? 1 : 2;
+        msg.teamRole = brain->data->tmMyTeamRole;
         msg.isAlive = brain->data->tmImAlive;
+        msg.isFallen = brain->data->recoveryState == RobotRecoveryState::HAS_FALLEN;
         msg.isLead = brain->data->tmImLead;
         msg.ballDetected = brain->data->ballDetected;
         msg.ballLocationKnown = brain->tree->getEntry<bool>("ball_location_known");
@@ -368,9 +370,23 @@ void BrainCommunication::unicastCommunication() {
         msg.kickDir = brain->data->kickDir;
         msg.thetaRb = brain->data->robotBallAngleToField;
         msg.robotState = brain->getRobotStateCode();
+        msg.assignedStrikerId = brain->data->tmAssignedStrikerId;
+        msg.assignedSupporterId = brain->data->tmAssignedSupporterId;
+        msg.captainDecisionId = brain->data->tmCaptainDecisionId;
         msg.cmdId = brain->data->tmMyCmdId;
         msg.cmd = brain->data->tmMyCmd;
-        log(format("ImAlive: %d, ImLead: %d, myCost: %.1f, myState: %s, myCmdId: %d, myCmd: %d", msg.isAlive, msg.isLead, msg.cost, robotStateCodeName(msg.robotState).c_str(), msg.cmdId, msg.cmd));
+        log(format("ImAlive: %d, fallen: %d, ImLead: %d, myCost: %.1f, myState: %s, teamRole: %s, captain[%d] S=%d P=%d, myCmdId: %d, myCmd: %d",
+            msg.isAlive,
+            msg.isFallen,
+            msg.isLead,
+            msg.cost,
+            robotStateCodeName(msg.robotState).c_str(),
+            teamRoleCodeName(msg.teamRole).c_str(),
+            msg.captainDecisionId,
+            msg.assignedStrikerId,
+            msg.assignedSupporterId,
+            msg.cmdId,
+            msg.cmd));
 
         std::lock_guard<std::mutex> lock(_teammate_addresses_mutex);
         for (auto it = _teammate_addresses.begin(); it != _teammate_addresses.end(); ++it) {
@@ -514,12 +530,26 @@ void BrainCommunication::spinCommunicationReceiver() {
             continue;
         }
 
-        log(format("TMID: %.d, alive: %d, lead: %d, cost: %.1f, state: %s, CmdId: %d, Cmd: %d", msg.playerId, msg.isAlive, msg.isLead, msg.cost, robotStateCodeName(msg.robotState).c_str(), msg.cmdId, msg.cmd));
+        log(format("TMID: %.d, alive: %d, fallen: %d, lead: %d, cost: %.1f, state: %s, teamRole: %s, captain[%d] S=%d P=%d, CmdId: %d, Cmd: %d",
+            msg.playerId,
+            msg.isAlive,
+            msg.isFallen,
+            msg.isLead,
+            msg.cost,
+            robotStateCodeName(msg.robotState).c_str(),
+            teamRoleCodeName(msg.teamRole).c_str(),
+            msg.captainDecisionId,
+            msg.assignedStrikerId,
+            msg.assignedSupporterId,
+            msg.cmdId,
+            msg.cmd));
 
         TMStatus &tmStatus = brain->data->tmStatus[tmIdx];
         
         tmStatus.role = msg.playerRole == 1 ? "striker" : "goal_keeper";
+        tmStatus.teamRole = msg.teamRole;
         tmStatus.isAlive = msg.isAlive;
+        tmStatus.isFallen = msg.isFallen;
         tmStatus.ballDetected = msg.ballDetected;
         tmStatus.ballLocationKnown = msg.ballLocationKnown;
         tmStatus.ballConfidence = msg.ballConfidence;
@@ -534,6 +564,9 @@ void BrainCommunication::spinCommunicationReceiver() {
         tmStatus.timeLastCom = brain->get_clock()->now();
         tmStatus.cmd = msg.cmd;
         tmStatus.cmdId = msg.cmdId;
+        tmStatus.assignedStrikerId = msg.assignedStrikerId;
+        tmStatus.assignedSupporterId = msg.assignedSupporterId;
+        tmStatus.captainDecisionId = msg.captainDecisionId;
 
         // 检查是否收到了新的指令
         if (msg.cmdId > brain->data->tmCmdId) {

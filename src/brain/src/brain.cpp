@@ -1,7 +1,8 @@
+#include <algorithm>
 #include <iostream>
 #include <string>
-#include <fstream>  // 添加这一行
-#include <yaml-cpp/yaml.h>  // 添加这一行
+#include <fstream>  // 娣诲姞杩欎竴琛?
+#include <yaml-cpp/yaml.h>  // 娣诲姞杩欎竴琛?
 
 #include "brain.h"
 #include "utils/print.h"
@@ -18,11 +19,11 @@ using std::placeholders::_1;
 
 Brain::Brain() : rclcpp::Node("brain_node")
 {
-    // 初始化tf广播器
+    // 鍒濆鍖杢f骞挎挱鍣?
     tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
-    
-    // 要注意参数必须先在这里声明，否则程序里也读不到
-    // 配置在 yaml 文件中的参数，如果有层级结构，用点分号来获取
+
+    // 瑕佹敞鎰忓弬鏁板繀椤诲厛鍦ㄨ繖閲屽０鏄庯紝鍚﹀垯绋嬪簭閲屼篃璇讳笉鍒?
+    // 閰嶇疆鍦?yaml 鏂囦欢涓殑鍙傛暟锛屽鏋滄湁灞傜骇缁撴瀯锛岀敤鐐瑰垎鍙锋潵鑾峰彇
 
     declare_parameter<int>("game.team_id", 0);
     declare_parameter<int>("game.player_id", 29);
@@ -41,7 +42,7 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<double>("robot.vy_limit", 0.4);
     declare_parameter<double>("robot.vtheta_limit", 1.0);
 
-    declare_parameter<double>("strategy.ball_confidence_threshold", 50.0);   
+    declare_parameter<double>("strategy.ball_confidence_threshold", 50.0);
     declare_parameter<double>("strategy.ball_confidence_decay_rate", 3.0);
     declare_parameter<bool>("strategy.enable_stable_kick", false);
     declare_parameter<double>("strategy.ball_memory_timeout", 3.0);
@@ -112,7 +113,7 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<double>("obstacle_avoidance.kick_ao_safe_dist", 1.0);
     declare_parameter<bool>("obstacle_avoidance.kick_ao_use_shoot", false);
     declare_parameter<bool>("obstacle_avoidance.always_turn_left", false);
-    
+
     declare_parameter<int>("locator.min_marker_count", 5);
     declare_parameter<double>("locator.max_residual", 0.3);
 
@@ -152,7 +153,7 @@ Brain::~Brain()
 
 void Brain::init()
 {
-    
+
     config = std::make_shared<BrainConfig>();
     loadConfig();
 
@@ -164,19 +165,19 @@ void Brain::init()
     client = std::make_shared<RobotClient>(this);
     communication = std::make_shared<BrainCommunication>(this);
 
-    
+
     locator->init(config->fieldDimensions, config->pfMinMarkerCnt, config->pfMaxResidual);
 
-   
+
     tree->init();
 
-   
+
     client->init();
 
     log->prepare();
-    
 
-    
+
+
     communication->initCommunication();
 
     data->lastSuccessfulLocalizeTime = get_clock()->now();
@@ -185,7 +186,7 @@ void Brain::init()
     data->timeLastGamecontrolMsg = get_clock()->now();
     data->ball.timePoint = get_clock()->now();
 
-    
+
     auto now = get_clock()->now();
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
         data->tmStatus[i].isAlive = false;
@@ -193,7 +194,7 @@ void Brain::init()
     }
     data->tmLastCmdChangeTime = now;
 
-   
+
     detectionsSubscription = create_subscription<vision_interface::msg::Detections>("/booster_vision/detection", SUB_STATE_QUEUE_SIZE, bind(&Brain::detectionsCallback, this, _1));
     subFieldLine = create_subscription<vision_interface::msg::LineSegments>("/booster_vision/line_segments", SUB_STATE_QUEUE_SIZE, bind(&Brain::fieldLineCallback, this, _1));
     odometerSubscription = create_subscription<booster_interface::msg::Odometer>("/odometer_state", SUB_STATE_QUEUE_SIZE, bind(&Brain::odometerCallback, this, _1));
@@ -207,7 +208,7 @@ void Brain::init()
     }
     string depthTopic = get_parameter("vision.depth_image_topic").as_string();
     depthImageSubscription = create_subscription<sensor_msgs::msg::Image>(depthTopic, SUB_STATE_QUEUE_SIZE, bind(&Brain::depthImageCallback, this, _1));
-    
+
     pubSoundPlay = create_publisher<std_msgs::msg::String>("/play_sound", 10);
     pubSpeak = create_publisher<std_msgs::msg::String>("/speak", 10);
     pubKickBall = create_publisher<brain::msg::Kick>("/kick_ball", 10);
@@ -270,12 +271,12 @@ void Brain::loadConfig()
     config->camAngleX = deg2rad(camDegX);
     config->camAngleY = deg2rad(camDegY);
 
-    // 从视觉 config 中加载相关参数
+    // 浠庤瑙?config 涓姞杞界浉鍏冲弬鏁?
     string visionConfigPath, visionConfigLocalPath;
     get_parameter("vision_config_path", visionConfigPath);
     get_parameter("vision_config_local_path", visionConfigLocalPath);
     if (!filesystem::exists(visionConfigPath)) {
-        // 报错然后退出
+        // 鎶ラ敊鐒跺悗閫€鍑?
         RCLCPP_ERROR(get_logger(), "vision_config_path %s not exists", visionConfigPath.c_str());
         exit(1);
     }
@@ -318,12 +319,12 @@ void Brain::loadConfig()
 
 void Brain::tick()
 {
-    // 输出 debug & log 相关信息
-    // logObstacleDistance(); // 计算量大, 仅需要时使用
+    // 杈撳嚭 debug & log 鐩稿叧淇℃伅
+    // logObstacleDistance(); // 璁＄畻閲忓ぇ, 浠呴渶瑕佹椂浣跨敤
     logLags();
     logStatusToConsole();
     updateLogFile();
-    
+
     updateMemory();
     updateBallPrediction();
     handleSpecialStates();
@@ -375,7 +376,7 @@ void Brain::pubKickMsg() {
 
 void Brain::handleSpecialStates() {
 
-    const double KICKOFF_DURATION = 10.0; 
+    const double KICKOFF_DURATION = 10.0;
     string gameState = tree->getEntry<string>("gc_game_state");
     bool isKickoffSide = tree->getEntry<bool>("gc_is_kickoff_side");
     string gameSubStateType = tree->getEntry<string>("gc_game_sub_state_type");
@@ -415,24 +416,107 @@ void Brain::handleCooperation() {
     };
     log_("handle cooperation");
 
-    const int CMD_COOLDOWN = 2000; 
-    const int COM_TIMEOUT = 5000; 
+    const int COM_TIMEOUT = 5000;
+    const double TM_BALL_TIMEOUT = 1000.0;
+    const double CAPTAIN_STEAL_MARGIN = 0.30;
 
     int selfId = config->playerId;
     int selfIdx = selfId - 1;
     int numOfPlayers = config->numOfPlayers;
+    data->tmMyCmd = 0;
+    data->tmMyCmdId = 0;
+    auto setCaptainAssignment = [&](int strikerId, int supporterId, const string &reason) {
+        strikerId = max(0, strikerId);
+        supporterId = max(0, supporterId);
+        if (supporterId == strikerId) supporterId = 0;
+        if (
+            data->tmAssignedStrikerId != strikerId
+            || data->tmAssignedSupporterId != supporterId
+        ) {
+            data->tmCaptainDecisionId += 1;
+        }
+        data->tmAssignedStrikerId = strikerId;
+        data->tmAssignedSupporterId = supporterId;
+        log_(format("captain assignment[%d]: striker=%d supporter=%d reason=%s",
+            data->tmCaptainDecisionId,
+            data->tmAssignedStrikerId,
+            data->tmAssignedSupporterId,
+            reason.c_str()));
+    };
+    auto adoptCaptainAssignment = [&](int captainId, int decisionId, int strikerId, int supporterId, const string &reason) {
+        strikerId = max(0, strikerId);
+        supporterId = max(0, supporterId);
+        if (supporterId == strikerId) supporterId = 0;
 
-    vector<int> aliveTmIdxs = {}; 
+        bool changed =
+            data->tmCaptainDecisionId != decisionId
+            || data->tmAssignedStrikerId != strikerId
+            || data->tmAssignedSupporterId != supporterId;
+
+        data->tmCaptainDecisionId = decisionId;
+        data->tmAssignedStrikerId = strikerId;
+        data->tmAssignedSupporterId = supporterId;
+
+        if (changed) {
+            log_(format("adopt captain assignment from P%d[%d]: striker=%d supporter=%d reason=%s",
+                captainId,
+                data->tmCaptainDecisionId,
+                data->tmAssignedStrikerId,
+                data->tmAssignedSupporterId,
+                reason.c_str()));
+        }
+    };
+    auto calcCaptainBallCost = [&](int playerId, bool isSelf) {
+        const double lostBallPenalty = 100.0;
+        const double fallenPenalty = 1000.0;
+        const double notAlivePenalty = 5000.0;
+        if (playerId <= 0) return 1e9;
+
+        if (isSelf) {
+            if (!data->tmImAlive) return notAlivePenalty;
+            if (data->recoveryState == RobotRecoveryState::HAS_FALLEN) return fallenPenalty;
+            if (!tree->getEntry<bool>("ball_location_known")) return lostBallPenalty + data->tmMyCost;
+            return data->tmMyCost;
+        }
+
+        int idx = playerId - 1;
+        if (idx < 0 || idx >= HL_MAX_NUM_PLAYERS) return 1e9;
+        auto status = data->tmStatus[idx];
+        if (!status.isAlive) return notAlivePenalty;
+        if (status.isFallen) return fallenPenalty;
+        if (status.robotState == ROBOT_STATE_FIND_BALL || !status.ballLocationKnown) return lostBallPenalty + status.cost;
+        return status.cost;
+    };
+    auto collectFrontfieldIds = [&](const vector<int> &aliveIdxs, const string &selfRole) {
+        vector<int> ids;
+        if (selfRole != "goal_keeper" && data->tmImAlive) ids.push_back(selfId);
+        for (int idx : aliveIdxs) {
+            auto tmStatus = data->tmStatus[idx];
+            if (tmStatus.role == "goal_keeper") continue;
+            ids.push_back(idx + 1);
+        }
+        sort(ids.begin(), ids.end());
+        ids.erase(unique(ids.begin(), ids.end()), ids.end());
+        return ids;
+    };
+    auto setMyTacticalRole = [&](int teamRole, bool isLead, const string &reason) {
+        data->tmMyTeamRole = teamRole;
+        data->tmImLead = isLead;
+        tree->setEntry<bool>("is_lead", isLead);
+        log_(reason);
+    };
+
+    vector<int> aliveTmIdxs = {};
 
 
-    data->tmImAlive = 
-        (data->penalty[selfIdx] == PENALTY_NONE) 
-        && tree->getEntry<bool>("odom_calibrated"); 
-    updateCostToKick(); 
+    data->tmImAlive =
+        (data->penalty[selfIdx] == PENALTY_NONE)
+        && tree->getEntry<bool>("odom_calibrated");
+    updateCostToKick();
     log_(format("ImAlive: %d, myCost: %.1f", data->tmImAlive, data->tmMyCost));
 
-    
-    int gcAliveCount = 0; 
+
+    int gcAliveCount = 0;
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++)
     {
         if (data->penalty[i] == PENALTY_NONE) {
@@ -446,11 +530,21 @@ void Brain::handleCooperation() {
             auto color = 0x00FFFFFF;
             if (!tmStatus.isAlive) color = 0x006666FF;
             else if (!tmStatus.isLead) color = 0x00CCCCFF;
-            string label = format("ID: %d, Cost: %.1f, State: %s", tmId, tmStatus.cost, robotStateCodeName(tmStatus.robotState).c_str());
+            string label = format(
+                "ID: %d, Cost: %.1f, State: %s, Role: %s, Down: %d, Cap: [%d] S=%d P=%d",
+                tmId,
+                tmStatus.cost,
+                robotStateCodeName(tmStatus.robotState).c_str(),
+                teamRoleCodeName(tmStatus.teamRole).c_str(),
+                tmStatus.isFallen,
+                tmStatus.captainDecisionId,
+                tmStatus.assignedStrikerId,
+                tmStatus.assignedSupporterId
+            );
             log->logRobot(format("field/teammate-%d", tmId).c_str(), tmStatus.robotPoseToField, color, label);
             log->logBall(
             format("tm_ball-%d", tmId).c_str(),
-            tmStatus.ballPosToField, 
+            tmStatus.ballPosToField,
             tmStatus.ballDetected ? 0x00FFFFFF : (tmStatus.isAlive ? 0x006666FF : 0x003333FF),
             tmStatus.ballDetected,
             tmStatus.ballLocationKnown
@@ -460,16 +554,16 @@ void Brain::handleCooperation() {
     log_(format("gcAliveCnt: %d", gcAliveCount));
 
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
-        if (i == selfIdx) continue; 
+        if (i == selfIdx) continue;
 
         if (
-            data->penalty[i] != PENALTY_NONE 
-            || msecsSince(data->tmStatus[i].timeLastCom) > COM_TIMEOUT 
+            data->penalty[i] != PENALTY_NONE
+            || msecsSince(data->tmStatus[i].timeLastCom) > COM_TIMEOUT
         ) {
             data->tmStatus[i].isAlive = false;
             data->tmStatus[i].isLead = false;
         }
-        
+
         if (data->tmStatus[i].isAlive) {
             aliveTmIdxs.push_back(i);
             log->setTimeNow();
@@ -479,13 +573,12 @@ void Brain::handleCooperation() {
     }
     log_(format("alive TM Count: %d", aliveTmIdxs.size()));
 
-    // log 当前 alive 队友的信息
+    // log 褰撳墠 alive 闃熷弸鐨勪俊鎭?
     log_(format("Self: cost: %.1f, isLead: %d", data->tmMyCost, data->tmImLead));
 
 
     static rclcpp::Time lastTmBallPosTime = get_clock()->now();
-    const double TM_BALL_TIMEOUT = 1000.; 
-    const double RANGE_THRESHOLD = config->tmBallDistThreshold; 
+    const double RANGE_THRESHOLD = config->tmBallDistThreshold;
     int trustedTMIdx = -1;
     double minRange = 1e6;
     log_(format("Find ball info among %d alive TMs", aliveTmIdxs.size()));
@@ -504,14 +597,14 @@ void Brain::handleCooperation() {
             }
         }
     }
-    if (trustedTMIdx >= 0) {   
+    if (trustedTMIdx >= 0) {
         log_(format("Reliable tm ball found. PlayerID = %d", trustedTMIdx + 1));
         data->tmBall.posToField = data->tmStatus[trustedTMIdx].ballPosToField;
         updateRelativePos(data->tmBall);
 
         tree->setEntry<bool>("tm_ball_pos_reliable", true);
         lastTmBallPosTime = get_clock()->now();
-        if (!tree->getEntry<bool>("ball_location_known")) { 
+        if (!tree->getEntry<bool>("ball_location_known")) {
             log_("update ball.posToField");
             data->ball.posToField = data->tmBall.posToField;
             updateRelativePos(data->ball);
@@ -527,17 +620,17 @@ void Brain::handleCooperation() {
     bool switchRole;
     get_parameter("strategy.cooperation.enable_role_switch", switchRole);
     if (switchRole) {
-        if (data->penalty[selfIdx] == PENALTY_NONE) { 
-            if (gcAliveCount < numOfPlayers) { 
+        if (data->penalty[selfIdx] == PENALTY_NONE) {
+            if (gcAliveCount < numOfPlayers) {
                 log_("Not full team. I must be Striker");
-                tree->setEntry<string>("player_role", "striker"); 
+                tree->setEntry<string>("player_role", "striker");
             }
-        } else { 
-            if (gcAliveCount == numOfPlayers - 1) { 
+        } else {
+            if (gcAliveCount == numOfPlayers - 1) {
                 log_("I am only on under penalty, I must be goal keeper");
-                tree->setEntry<string>("player_role", "goal_keeper"); 
+                tree->setEntry<string>("player_role", "goal_keeper");
             }
-    
+
         }
     }
 
@@ -545,112 +638,309 @@ void Brain::handleCooperation() {
         tree->setEntry<string>("player_role", config->playerRole);
     }
 
-
-    double tmMinCost = 1e5;
-    int myCostRank = 0;
-    int myStrikerIDRank = 0;
-    for (int i = 0; i < aliveTmIdxs.size(); i++) {
-        int tmIdx = aliveTmIdxs[i];
-        auto tmStatus = data->tmStatus[tmIdx];
-        if (tmStatus.cost < tmMinCost) tmMinCost = tmStatus.cost;
-        if (tmStatus.cost < data->tmMyCost) myCostRank++;
-        if (tmIdx < selfIdx && tmStatus.role == "striker") myStrikerIDRank++;
-    }
-    data->tmMyCostRank = myCostRank;
-    data->myStrikerIDRank = myStrikerIDRank;
-
-    double BALL_CONTROL_COST_THRESHOLD = 3.0;
-    get_parameter("strategy.cooperation.ball_control_cost_threshold", BALL_CONTROL_COST_THRESHOLD);
-
-    if (
-        (tmMinCost < BALL_CONTROL_COST_THRESHOLD && data->tmMyCost > tmMinCost)
-        || myCostRank >= 2
-    ) {
-
-        data->tmImLead = false;
-        tree->setEntry<bool>("is_lead", false);
-        log_("I am not lead");
-
-    } else {
-        data->tmImLead = true;
-        tree->setEntry<bool>("is_lead", true);
-        log_("I am Lead");
-    }
-    log_(format("tmMinCost: %.1f, myCost: %.1f, myCostRank: %d, myStrikerIDRank: %d", tmMinCost, data->tmMyCost, myCostRank, myStrikerIDRank));
-
-
-    if (
-        data->tmImAlive 
-        && tree->getEntry<string>("player_role") == "goal_keeper"
-        && data->tmImLead 
-        && msecsSince(data->tmLastCmdChangeTime) > CMD_COOLDOWN 
-    ) {
-        auto distToGoal = [=](Pose2D pose) {
-            return norm(pose.x + config->fieldDimensions.length / 2.0, pose.y);
-        };
-        double maxDist = 0.0;
-        double minDist = 1e6;
-        int minIndex = -1; 
-        double myDist = distToGoal(data->robotPoseToField);
-        for (int i = 0; i < aliveTmIdxs.size(); i++) {
-            int tmIdx = aliveTmIdxs[i];
-            auto tmPose = data->tmStatus[tmIdx].robotPoseToField;
-            double dist = distToGoal(tmPose);
-            if (dist > maxDist) maxDist = dist;
-            if (dist < minDist) {
-                minIndex = tmIdx;
-                minDist = dist;
-            }
-        }
-        if (minIndex >= 0 && myDist > maxDist) {
-            data->tmLastCmdChangeTime = get_clock()->now();
-            data->tmMyCmd = 10 + minIndex + 1; 
-            data->tmCmdId += 1;
-            data->tmMyCmdId = data->tmCmdId;
-            tree->setEntry<string>("player_role", "striker");
-            log_(format("goalie: i am too far from goal, i ask player %d to attack", minIndex + 1));
-        } else {
-            log_(format("goalie: i am close enough to goal, no need to attack, my dist: %.2f", myDist));
-        }
-    }
-
-
     auto cmd = data->tmReceivedCmd;
     if (cmd != 0) {
         log_(format("received cmd %d from teammate", cmd));
-        if (cmd == 100) { // 队友要控球
-            data->tmImLead = false;
-            tree->setEntry<bool>("is_lead", false);
-            log_("teammate wants to take lead, i'll assist");
-        } else if (cmd > 10 && cmd < 20) { 
-            log_("goalie wants to attack");
+        if (cmd == 100) {
+            if (data->tmCaptainDecisionId == 0) {
+                data->tmImLead = false;
+                tree->setEntry<bool>("is_lead", false);
+                log_("legacy teammate wants to take lead, i'll assist");
+            } else {
+                log_("ignore legacy lead cmd because captain assignment is active");
+            }
+        } else if (cmd > 10 && cmd < 20) {
             int newGoalieId = cmd - 10;
-            if (newGoalieId == selfId) { 
-                log_("i become goalie");
+            log_("legacy goalie handoff received");
+            if (newGoalieId == selfId) {
                 tree->setEntry<string>("player_role", "goal_keeper");
+                data->tmCaptainDecisionId = 0;
+                data->tmAssignedStrikerId = 0;
+                data->tmAssignedSupporterId = 0;
+                log_("i become goalie");
                 speak("i become goalie", true);
-            } else { 
+            } else {
                 log_(format("teammate %d becomes goalie", newGoalieId));
             }
         } else {
             log_(format("unknown cmd %d from teammate", cmd));
         }
 
-        data->tmReceivedCmd = 0; 
+        data->tmReceivedCmd = 0;
+    }
+
+    string playerRole = tree->getEntry<string>("player_role");
+    if (
+        (tree->getEntry<string>("gc_game_state") == "READY" || tree->getEntry<string>("gc_game_sub_state") == "GET_READY")
+        && gcAliveCount == numOfPlayers
+    ) {
+        tree->setEntry<string>("player_role", config->playerRole);
+        if (config->playerRole == "goal_keeper") {
+            data->tmMyTeamRole = TEAM_ROLE_GOALKEEPER;
+            data->tmImLead = false;
+        } else {
+            data->tmMyTeamRole = TEAM_ROLE_STRIKER;
+            data->tmImLead = true;
+        }
+        data->tmCaptainDecisionId = 0;
+        data->tmAssignedStrikerId = 0;
+        data->tmAssignedSupporterId = 0;
+        tree->setEntry<bool>("is_lead", data->tmImLead);
+        log_(format("all teammates on field. Back to initial role: %s", config->playerRole.c_str()));
+        return;
+    }
+
+
+    double tmMinCost = 1e5;
+    int myCostRank = 0;
+    int myStrikerIDRank = 0;
+    double BALL_CONTROL_COST_THRESHOLD = 3.0;
+    get_parameter("strategy.cooperation.ball_control_cost_threshold", BALL_CONTROL_COST_THRESHOLD);
+
+    vector<int> frontfieldIds = collectFrontfieldIds(aliveTmIdxs, playerRole);
+    auto isFrontfieldId = [&](int playerId) {
+        return find(frontfieldIds.begin(), frontfieldIds.end(), playerId) != frontfieldIds.end();
+    };
+    for (int tmIdx : aliveTmIdxs) {
+        auto tmStatus = data->tmStatus[tmIdx];
+        if (tmStatus.role == "goal_keeper") continue;
+        if (tmStatus.cost < tmMinCost) tmMinCost = tmStatus.cost;
+        if (
+            tmStatus.cost < data->tmMyCost - 1e-6
+            || (fabs(tmStatus.cost - data->tmMyCost) < 1e-6 && tmIdx < selfIdx)
+        ) {
+            myCostRank++;
+        }
+        if (tmIdx < selfIdx) myStrikerIDRank++;
+    }
+    if (playerRole != "goal_keeper" && data->tmImAlive) {
+        tmMinCost = min(tmMinCost, data->tmMyCost);
+    }
+    if (tmMinCost > 1e4) tmMinCost = data->tmMyCost;
+    data->tmMyCostRank = myCostRank;
+    data->myStrikerIDRank = myStrikerIDRank;
+
+    int currentAssignedStriker = data->tmAssignedStrikerId;
+    int currentAssignedSupporter = data->tmAssignedSupporterId;
+    bool currentStrikerStillValid = currentAssignedStriker > 0 && isFrontfieldId(currentAssignedStriker);
+    bool currentSupporterStillValid =
+        currentAssignedSupporter > 0
+        && isFrontfieldId(currentAssignedSupporter)
+        && currentAssignedSupporter != currentAssignedStriker;
+
+    int remoteCaptainId = 0;
+    int remoteCaptainDecisionId = 0;
+    int remoteCaptainStrikerId = 0;
+    int remoteCaptainSupporterId = 0;
+    for (int tmIdx : aliveTmIdxs) {
+        const auto &tmStatus = data->tmStatus[tmIdx];
+        if (tmStatus.role != "goal_keeper" || !tmStatus.isAlive || tmStatus.isFallen) continue;
+        if (tmStatus.captainDecisionId <= 0) continue;
+        if (!isFrontfieldId(tmStatus.assignedStrikerId)) continue;
+
+        int supporterId = tmStatus.assignedSupporterId;
+        if (supporterId > 0 && (!isFrontfieldId(supporterId) || supporterId == tmStatus.assignedStrikerId)) {
+            supporterId = 0;
+        }
+
+        int captainId = tmIdx + 1;
+        if (
+            tmStatus.captainDecisionId > remoteCaptainDecisionId
+            || (
+                tmStatus.captainDecisionId == remoteCaptainDecisionId
+                && (remoteCaptainId == 0 || captainId < remoteCaptainId)
+            )
+        ) {
+            remoteCaptainId = captainId;
+            remoteCaptainDecisionId = tmStatus.captainDecisionId;
+            remoteCaptainStrikerId = tmStatus.assignedStrikerId;
+            remoteCaptainSupporterId = supporterId;
+        }
+    }
+
+    if (playerRole == "goal_keeper" && data->tmImAlive) {
+        int bestStrikerId = 0;
+        double bestStrikerCost = 1e9;
+        for (int playerId : frontfieldIds) {
+            double candidateCost = calcCaptainBallCost(playerId, playerId == selfId);
+            if (
+                candidateCost < bestStrikerCost - 1e-6
+                || (fabs(candidateCost - bestStrikerCost) < 1e-6 && playerId < bestStrikerId)
+            ) {
+                bestStrikerCost = candidateCost;
+                bestStrikerId = playerId;
+            }
+        }
+
+        int nextStrikerId = bestStrikerId;
+        if (currentStrikerStillValid && currentAssignedStriker > 0) {
+            double currentCost = calcCaptainBallCost(currentAssignedStriker, currentAssignedStriker == selfId);
+            double challengerCost = calcCaptainBallCost(bestStrikerId, bestStrikerId == selfId);
+            if (challengerCost > currentCost - CAPTAIN_STEAL_MARGIN) {
+                nextStrikerId = currentAssignedStriker;
+            }
+        }
+
+        int nextSupporterId = 0;
+        double bestSupportCost = 1e9;
+        for (int playerId : frontfieldIds) {
+            if (playerId == nextStrikerId) continue;
+            double candidateCost = calcCaptainBallCost(playerId, playerId == selfId);
+            if (
+                candidateCost < bestSupportCost - 1e-6
+                || (fabs(candidateCost - bestSupportCost) < 1e-6 && playerId < nextSupporterId)
+            ) {
+                bestSupportCost = candidateCost;
+                nextSupporterId = playerId;
+            }
+        }
+
+        if (!currentSupporterStillValid && nextSupporterId == 0 && frontfieldIds.size() >= 2) {
+            for (int playerId : frontfieldIds) {
+                if (playerId != nextStrikerId) {
+                    nextSupporterId = playerId;
+                    break;
+                }
+            }
+        }
+
+        setCaptainAssignment(nextStrikerId, nextSupporterId, "goalkeeper_referee");
+    } else if (remoteCaptainId > 0) {
+        adoptCaptainAssignment(
+            remoteCaptainId,
+            remoteCaptainDecisionId,
+            remoteCaptainStrikerId,
+            remoteCaptainSupporterId,
+            "remote_goalkeeper_referee"
+        );
+    } else if (
+        data->tmCaptainDecisionId == 0
+        || !currentStrikerStillValid
+        || (currentAssignedSupporter > 0 && !currentSupporterStillValid)
+    ) {
+        int fallbackStrikerId = 0;
+        if (playerRole != "goal_keeper" && data->tmImAlive) fallbackStrikerId = selfId;
+        else if (!frontfieldIds.empty()) fallbackStrikerId = frontfieldIds.front();
+        int fallbackSupporterId = 0;
+        for (int playerId : frontfieldIds) {
+            if (playerId == fallbackStrikerId) continue;
+            fallbackSupporterId = playerId;
+            break;
+        }
+        setCaptainAssignment(fallbackStrikerId, fallbackSupporterId, "fallback_local_default");
+    }
+
+    if (!data->tmImAlive) {
+        setMyTacticalRole(TEAM_ROLE_UNKNOWN, false, "I am off field");
+    } else if (playerRole == "goal_keeper") {
+        setMyTacticalRole(TEAM_ROLE_GOALKEEPER, false, "I am goalkeeper captain");
+    } else if (data->tmAssignedStrikerId > 0) {
+        if (data->tmAssignedStrikerId == selfId) {
+            setMyTacticalRole(TEAM_ROLE_STRIKER, true, "I obey captain assignment: striker");
+        } else if (data->tmAssignedSupporterId == selfId) {
+            setMyTacticalRole(TEAM_ROLE_SUPPORTER, false, "I obey captain assignment: supporter");
+        } else {
+            setMyTacticalRole(TEAM_ROLE_SUPPORTER, false, "I obey captain assignment: frontfield assist");
+        }
+    } else if (
+        (tmMinCost < BALL_CONTROL_COST_THRESHOLD && data->tmMyCost > tmMinCost)
+        || myCostRank >= 2
+    ) {
+        setMyTacticalRole(TEAM_ROLE_SUPPORTER, false, "I am not lead");
+    } else {
+        setMyTacticalRole(TEAM_ROLE_STRIKER, true, "I am lead");
+    }
+
+    string captainSource = "none";
+    int captainSourceId = 0;
+    if (playerRole == "goal_keeper" && data->tmImAlive) {
+        captainSource = "self_goalkeeper";
+        captainSourceId = selfId;
+    } else if (remoteCaptainId > 0) {
+        captainSource = "remote_goalkeeper";
+        captainSourceId = remoteCaptainId;
+    } else if (data->tmCaptainDecisionId > 0) {
+        captainSource = "local_fallback";
+        captainSourceId = selfId;
+    }
+    log_(format(
+        "summary: role=%s teamRole=%s lead=%d captainSrc=%s[%d] captain[%d] S=%d P=%d tmMin=%.2f myCost=%.2f rank=%d idRank=%d",
+        playerRole.c_str(),
+        teamRoleCodeName(data->tmMyTeamRole).c_str(),
+        data->tmImLead,
+        captainSource.c_str(),
+        captainSourceId,
+        data->tmCaptainDecisionId,
+        data->tmAssignedStrikerId,
+        data->tmAssignedSupporterId,
+        tmMinCost,
+        data->tmMyCost,
+        myCostRank,
+        myStrikerIDRank
+    ));
+
+    return;
+#if 0
+
+
+
+
+    auto cmd = data->tmReceivedCmd;
+    if (cmd != 0) {
+        log_(format("received cmd %d from teammate", cmd));
+        if (cmd == 100) { // 闃熷弸瑕佹帶鐞?
+            data->tmImLead = false;
+            tree->setEntry<bool>("is_lead", false);
+            log_("teammate wants to take lead, i'll assist");
+        } else if (cmd > 10 && cmd < 20) {
+            log_("goalie wants to attack");
+            int newGoalieId = cmd - 10;
+            if (newGoalieId == selfId) {
+                log_("i become goalie");
+                tree->setEntry<string>("player_role", "goal_keeper");
+                speak("i become goalie", true);
+            } else {
+                log_(format("teammate %d becomes goalie", newGoalieId));
+            }
+        } else {
+            log_(format("unknown cmd %d from teammate", cmd));
+        }
+
+        data->tmReceivedCmd = 0;
+    }
+
+    if (playerRole != "goal_keeper" && data->tmAssignedStrikerId > 0) {
+        if (data->tmAssignedStrikerId == selfId) {
+            data->tmMyTeamRole = TEAM_ROLE_STRIKER;
+            data->tmImLead = true;
+            tree->setEntry<bool>("is_lead", true);
+        } else if (data->tmAssignedSupporterId == selfId) {
+            data->tmMyTeamRole = TEAM_ROLE_SUPPORTER;
+            data->tmImLead = false;
+            tree->setEntry<bool>("is_lead", false);
+        }
     }
 
     tree->setEntry<bool>("is_lead", data->tmImLead);
 
     if (
-        (tree->getEntry<string>("gc_game_state") == "READY" || tree->getEntry<string>("gc_game_sub_state") == "GET_READY") 
+        (tree->getEntry<string>("gc_game_state") == "READY" || tree->getEntry<string>("gc_game_sub_state") == "GET_READY")
         && gcAliveCount == numOfPlayers
     ) {
-       
+
         tree->setEntry<string>("player_role", config->playerRole);
+        if (config->playerRole == "goal_keeper") {
+            data->tmMyTeamRole = TEAM_ROLE_GOALKEEPER;
+        } else {
+            data->tmMyTeamRole = TEAM_ROLE_STRIKER;
+        }
+        data->tmAssignedStrikerId = 0;
+        data->tmAssignedSupporterId = 0;
         log_(format("all teammates on field. Back to initial role: %s", config->playerRole.c_str()));
     }
 
     return;
+#endif
 }
 
 void Brain::updateMemory()
@@ -662,15 +952,15 @@ void Brain::updateMemory()
 }
 
 void Brain::updateObstacleMemory() {
-   
+
     auto obstacles = data->getObstacles();
     vector<GameObject> obs_new = {};
 
     const double OBS_EXPIRE_TIME = get_parameter("obstacle_avoidance.obstacle_memory_msecs").as_double();
     for (int i = 0; i < obstacles.size(); i++) {
         auto obs = obstacles[i];
-        if (obs.label == "Ball") continue; 
-        if (msecsSince(obs.timePoint) > OBS_EXPIRE_TIME)  continue; 
+        if (obs.label == "Ball") continue;
+        if (msecsSince(obs.timePoint) > OBS_EXPIRE_TIME)  continue;
 
 
         updateRelativePos(obs);
@@ -722,15 +1012,15 @@ void Brain::updateBallMemory()
 
     log->setTimeNow();
     log->logBall(
-        "field/ball", 
-        data->ball.posToField, 
+        "field/ball",
+        data->ball.posToField,
         data->ballDetected ? 0x00FF00FF : 0x006600FF,
         data->ballDetected,
         ballLocationKnown
         );
     log->logBall(
-        "field/tmBall", 
-        data->tmBall.posToField, 
+        "field/tmBall",
+        data->tmBall.posToField,
         0xFFFF00FF,
         tree->getEntry<bool>("tm_ball_pos_reliable"),
         tree->getEntry<bool>("tm_ball_pos_reliable")
@@ -758,19 +1048,19 @@ void Brain::updateRobotMemory() {
 }
 
 void Brain::updateKickoffMemory() {
-    
+
     static Point ballPos;
-    const double BALL_MOVE_THRESHOLD_FACTOR = 0.15; 
-    const double BALL_MOVE_THRESHOLD_MIN = 0.3; 
+    const double BALL_MOVE_THRESHOLD_FACTOR = 0.15;
+    const double BALL_MOVE_THRESHOLD_MIN = 0.3;
     auto ballMoved = [=]() {
-        if (!data->ballDetected) return false; 
+        if (!data->ballDetected) return false;
         double range = data->ball.range;
         double threshold = max(range * BALL_MOVE_THRESHOLD_FACTOR, BALL_MOVE_THRESHOLD_MIN);
         double posChange = norm(data->ball.posToRobot.x - ballPos.x, data->ball.posToRobot.y - ballPos.y);
         return posChange > threshold;
     };
     static rclcpp::Time kickOffTime;
-    const double TIMEOUT = 1000 * 10; 
+    const double TIMEOUT = 1000 * 10;
     auto timeReached = [=]() {
         return msecsSince(kickOffTime) > TIMEOUT;
     };
@@ -795,7 +1085,7 @@ void Brain::updateKickoffMemory() {
 
 vector<double> Brain::getGoalPostAngles(const double margin)
 {
-    double leftX, leftY, rightX, rightY; 
+    double leftX, leftY, rightX, rightY;
 
     leftX = config->fieldDimensions.length / 2;
     leftY = config->fieldDimensions.goalWidth / 2;
@@ -827,17 +1117,17 @@ vector<double> Brain::getGoalPostAngles(const double margin)
 }
 
 double Brain::calcKickDir(double goalPostMargin) {
-    double dir_rb_f = data->robotBallAngleToField; 
+    double dir_rb_f = data->robotBallAngleToField;
     auto goalPostAngles = getGoalPostAngles(goalPostMargin);
-    double theta_l = goalPostAngles[0]; 
+    double theta_l = goalPostAngles[0];
     double theta_r = goalPostAngles[1];
-    
+
     if (isAngleGood(goalPostMargin)) return dir_rb_f;
 
     double delta_l = fabs(toPInPI(theta_l - dir_rb_f));
     double delta_r = fabs(toPInPI(theta_r - dir_rb_f));
     if (delta_l < delta_r) return theta_l;
-    // else 
+    // else
     return theta_r;
 }
 
@@ -863,8 +1153,8 @@ void Brain::updateCostToKick() {
 
     cost += data->ball.range;
     log_(format("ball range cost: %.1f", data->ball.range));
-    
-    
+
+
 
     if (distToObstacle(data->ball.yawToRobot) < 1.5) {
         log_(format("obstacle cost: %.1f", 2.0));
@@ -872,17 +1162,17 @@ void Brain::updateCostToKick() {
     }
 
 
-    cost += fabs(data->ball.yawToRobot) / 1.0; 
+    cost += fabs(data->ball.yawToRobot) / 1.0;
     log_(format("ball yaw cost: %.1f", fabs(data->ball.yawToRobot) / 1.0));
 
 
 
     int selfIdx = config->playerId - 1;
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
-        if (i == selfIdx) continue; 
+        if (i == selfIdx) continue;
 
-        auto status = data->tmStatus[i]; 
-        if (!status.isAlive) continue; 
+        auto status = data->tmStatus[i];
+        if (!status.isAlive) continue;
 
         double theta_tm2ball = atan2(status.ballPosToField.y - status.robotPoseToField.y, status.ballPosToField.x - status.robotPoseToField.x);
         double range_tm2ball = norm(status.ballPosToField.y - status.robotPoseToField.y, status.ballPosToField.x - status.robotPoseToField.x);
@@ -893,26 +1183,26 @@ void Brain::updateCostToKick() {
         const double BUMP_DIST = 1.0;
         if (range_tm2ball < range_me2ball && sin(deltaTheta) * range_tm2ball < BUMP_DIST) {
             cost += 2.0;
-            log_(format("bump cost: %.1f", 2.0));  
+            log_(format("bump cost: %.1f", 2.0));
         }
     }
 
-    cost += fabs(toPInPI(data->kickDir - data->robotBallAngleToField)) * 0.4 / 0.3; 
+    cost += fabs(toPInPI(data->kickDir - data->robotBallAngleToField)) * 0.4 / 0.3;
     log_(format("ajust cost: %.1f", fabs(toPInPI(data->kickDir - data->robotBallAngleToField)) * 0.4 / 0.3));
-    
+
 
     if (data->recoveryState == RobotRecoveryState::HAS_FALLEN) {
         cost += 15.0;
-        log_(format("fall cost: %.1f", 15.0));  
+        log_(format("fall cost: %.1f", 15.0));
     }
 
-    
+
     if (!tree->getEntry<bool>("odom_calibrated")) {
         cost += 100;
-        log_(format("localization cost: %.1f", 100.0));  
+        log_(format("localization cost: %.1f", 100.0));
 
     }
-    
+
     double lastCost = data->tmMyCost;
     data->tmMyCost = lastCost * 0.8 + cost * 0.2;
     log_(format("lastCost: %.1f, newCost: %.1f, smoothCost: %.1f", lastCost, cost, data->tmMyCost));
@@ -922,18 +1212,18 @@ void Brain::updateCostToKick() {
 
 bool Brain::isAngleGood(double goalPostMargin, string type) {
     double angle = 0;
-    if (type == "kick") angle = data->robotBallAngleToField; // type=="kick" 机器人到球, field 坐标系中的方向
-    if (type == "shoot") angle = data->robotPoseToField.theta; // type=="shoot" 机器人朝向
-    
+    if (type == "kick") angle = data->robotBallAngleToField; // type=="kick" 鏈哄櫒浜哄埌鐞? field 鍧愭爣绯讳腑鐨勬柟鍚?
+    if (type == "shoot") angle = data->robotPoseToField.theta; // type=="shoot" 鏈哄櫒浜烘湞鍚?
+
 
     auto goalPostAngles = getGoalPostAngles(goalPostMargin);
-    double theta_l = goalPostAngles[0]; 
-    double theta_r = goalPostAngles[1]; 
-    
-    if (theta_l - theta_r < M_PI / 3 * 2) { 
+    double theta_l = goalPostAngles[0];
+    double theta_r = goalPostAngles[1];
+
+    if (theta_l - theta_r < M_PI / 3 * 2) {
         goalPostAngles = getGoalPostAngles(0.5);
-        theta_l = goalPostAngles[0]; 
-        theta_r = goalPostAngles[1]; 
+        theta_l = goalPostAngles[0];
+        theta_r = goalPostAngles[1];
     }
 
     return (theta_l > angle && theta_r < angle);
@@ -941,9 +1231,9 @@ bool Brain::isAngleGood(double goalPostMargin, string type) {
 
 bool Brain::isPrimaryStriker() {
     string myRole = tree->getEntry<string>("player_role");
-    if (myRole != "striker") return false; 
+    if (myRole != "striker") return false;
 
-    if (!config->enableCom) return true; 
+    if (!config->enableCom) return true;
 
     // find first alive striker that is not me.
     auto firstAliveStrikerIdx = -1;
@@ -957,9 +1247,9 @@ bool Brain::isPrimaryStriker() {
         }
     }
 
-    if ( firstAliveStrikerIdx >= 0 && firstAliveStrikerIdx <  myIdx) return false; // 有 id 更小的活的前锋, 让他来当主力
+    if ( firstAliveStrikerIdx >= 0 && firstAliveStrikerIdx <  myIdx) return false; // 鏈?id 鏇村皬鐨勬椿鐨勫墠閿? 璁╀粬鏉ュ綋涓诲姏
 
-    // else 没有 id 更小的活的前锋, 我是主力
+    // else 娌℃湁 id 鏇村皬鐨勬椿鐨勫墠閿? 鎴戞槸涓诲姏
     return true;
 }
 
@@ -972,7 +1262,7 @@ bool Brain::isBallOut(double locCompareDist, double lineCompareDist)
         return true;
     if (fabs(ball.posToField.y) > fd.width / 2 + locCompareDist)
         return true;
-    
+
     auto fieldLines = data->getFieldLines();
     for (int i = 0; i < fieldLines.size(); i++) {
         auto line = fieldLines[i];
@@ -992,9 +1282,7 @@ void Brain::updateBallOut() {
     bool lastBallOut = tree->getEntry<bool>("ball_out");
     double range = lastBallOut ? 4.0 : 2.5;
     double threshold = config->ballOutThreshold;
-    threshold += (data->isFreekickKickingOff ? 1.0 : 0.0); // 如果正在踢任意球, 则放宽出界判断
-    threshold *= (lastBallOut ? 1.0 : 1.5); // 防止震荡. 如果上次判断为出界, 则放宽出界判断
-    tree->setEntry<bool>("ball_out", isBallOut(threshold, 10.0) && data->ball.range < range); // 严格通过定位判断是否出界
+    threshold += (data->isFreekickKickingOff ? 1.0 : 0.0); // 濡傛灉姝ｅ湪韪换鎰忕悆, 鍒欐斁瀹藉嚭鐣屽垽鏂?    threshold *= (lastBallOut ? 1.0 : 1.5); // 闃叉闇囪崱. 濡傛灉涓婃鍒ゆ柇涓哄嚭鐣? 鍒欐斁瀹藉嚭鐣屽垽鏂?    tree->setEntry<bool>("ball_out", isBallOut(threshold, 10.0) && data->ball.range < range); // 涓ユ牸閫氳繃瀹氫綅鍒ゆ柇鏄惁鍑虹晫
 }
 
 void Brain::updateBallPrediction()
@@ -1225,7 +1513,7 @@ bool Brain::isBoundingBoxInCenter(BoundingBox boundingBox, double xRatio, double
 bool Brain::isDefensing() {
     bool isFreeKick = tree->getEntry<string>("gc_game_sub_state_type") == "FREE_KICK";
     bool isKickoffSide = tree->getEntry<bool>("gc_is_sub_state_kickoff_side");
-    
+
     return isFreeKick && (!isKickoffSide);
 }
 
@@ -1237,7 +1525,7 @@ void Brain::calibrateOdom(double x, double y, double theta)
     y_or = sin(data->robotPoseToOdom.theta) * data->robotPoseToOdom.x - cos(data->robotPoseToOdom.theta) * data->robotPoseToOdom.y;
     theta_or = -data->robotPoseToOdom.theta;
 
-    
+
     transCoord(x_or, y_or, theta_or,
                x, y, theta,
                data->odomToField.x, data->odomToField.y, data->odomToField.theta);
@@ -1254,7 +1542,7 @@ void Brain::calibrateOdom(double x, double y, double theta)
     transCoord(
         data->ball.posToRobot.x, data->ball.posToRobot.y, 0,
         data->robotPoseToField.x, data->robotPoseToField.y, data->robotPoseToField.theta,
-        data->ball.posToField.x, data->ball.posToField.y, placeHolder 
+        data->ball.posToField.x, data->ball.posToField.y, placeHolder
     );
 
     // robots
@@ -1269,7 +1557,7 @@ void Brain::calibrateOdom(double x, double y, double theta)
     for (int i = 0; i < goalposts.size(); i++) {
         updateFieldPos(goalposts[i]);
     }
-    
+
     // markers
     auto markings = data->getMarkings();
     for (int i = 0; i < markings.size(); i++) {
@@ -1301,7 +1589,7 @@ void Brain::playSound(string soundName, double blockMsecs, bool allowRepeat)
     if (_lastSound == soundName && (!allowRepeat)) return;
 
     // else
-    
+
     std_msgs::msg::String msg;
     msg.data = soundName;
     pubSoundPlay->publish(msg);
@@ -1336,12 +1624,12 @@ bool Brain::speak(string text, bool allowRepeat)
         log_("cooldown in process");
         return false;
     }
-    
+
     if (_lastText == text && (!allowRepeat)) {
         log_("repeat not allowed");
         return false;
     }
-    
+
     // else
     _lastTime = get_clock()->now();
     std_msgs::msg::String msg;
@@ -1360,7 +1648,7 @@ double Brain::msecsSince(rclcpp::Time time)
 
 rclcpp::Time Brain::timePointFromHeader(std_msgs::msg::Header header) {
     auto stamp = header.stamp;
-    // NOTE 似乎无论 use_sim_time 是否为真, 都使用的是 ROS_TIME 
+    // NOTE 浼间箮鏃犺 use_sim_time 鏄惁涓虹湡, 閮戒娇鐢ㄧ殑鏄?ROS_TIME
     auto sec = stamp.sec;
     auto nanosec = stamp.nanosec;
     if (sec <= 0 || nanosec <= 0) {
@@ -1405,23 +1693,23 @@ int Brain::getRobotStateCode()
 string Brain::getRobotStateText()
 {
     switch (getRobotStateCode()) {
-    case ROBOT_STATE_WAITING_START: return string(u8"等待启动");
-    case ROBOT_STATE_MANUAL: return string(u8"手动模式");
-    case ROBOT_STATE_ENTERING_FIELD: return string(u8"入场定位中");
-    case ROBOT_STATE_PENALIZED: return string(u8"罚下/重新入场中");
-    case ROBOT_STATE_WAIT_OPPONENT_KICKOFF: return string(u8"等待对方开球");
-    case ROBOT_STATE_GOALIE_GUARD: return string(u8"守门待命中");
-    case ROBOT_STATE_FIND_BALL: return string(u8"正在找球");
-    case ROBOT_STATE_BALL_FOUND: return string(u8"已找到球");
-    case ROBOT_STATE_CHASE_BALL: return string(u8"正在追球");
-    case ROBOT_STATE_ADJUST_BALL: return string(u8"已追到球，正在调整");
-    case ROBOT_STATE_KICK_BALL: return string(u8"已追到球，正在踢球");
-    case ROBOT_STATE_CROSS_BALL: return string(u8"已追到球，正在传球");
-    case ROBOT_STATE_VISUAL_KICK: return string(u8"视觉踢球中");
-    case ROBOT_STATE_ASSIST: return string(u8"协防/辅助中");
-    case ROBOT_STATE_RETREAT: return string(u8"回撤守门中");
-    case ROBOT_STATE_INTERCEPT: return string(u8"守门拦截中");
-    default: return string(u8"状态未知");
+    case ROBOT_STATE_WAITING_START: return string(u8"绛夊緟鍚姩");
+    case ROBOT_STATE_MANUAL: return string(u8"鎵嬪姩妯″紡");
+    case ROBOT_STATE_ENTERING_FIELD: return string(u8"鍏ュ満瀹氫綅涓?);
+    case ROBOT_STATE_PENALIZED: return string(u8"缃氫笅/閲嶆柊鍏ュ満涓?);
+    case ROBOT_STATE_WAIT_OPPONENT_KICKOFF: return string(u8"绛夊緟瀵规柟寮€鐞?);
+    case ROBOT_STATE_GOALIE_GUARD: return string(u8"瀹堥棬寰呭懡涓?);
+    case ROBOT_STATE_FIND_BALL: return string(u8"姝ｅ湪鎵剧悆");
+    case ROBOT_STATE_BALL_FOUND: return string(u8"宸叉壘鍒扮悆");
+    case ROBOT_STATE_CHASE_BALL: return string(u8"姝ｅ湪杩界悆");
+    case ROBOT_STATE_ADJUST_BALL: return string(u8"宸茶拷鍒扮悆锛屾鍦ㄨ皟鏁?);
+    case ROBOT_STATE_KICK_BALL: return string(u8"宸茶拷鍒扮悆锛屾鍦ㄨ涪鐞?);
+    case ROBOT_STATE_CROSS_BALL: return string(u8"宸茶拷鍒扮悆锛屾鍦ㄤ紶鐞?);
+    case ROBOT_STATE_VISUAL_KICK: return string(u8"瑙嗚韪㈢悆涓?);
+    case ROBOT_STATE_ASSIST: return string(u8"鍗忛槻/杈呭姪涓?);
+    case ROBOT_STATE_RETREAT: return string(u8"鍥炴挙瀹堥棬涓?);
+    case ROBOT_STATE_INTERCEPT: return string(u8"瀹堥棬鎷︽埅涓?);
+    default: return string(u8"鐘舵€佹湭鐭?);
     }
 }
 
@@ -1458,7 +1746,7 @@ void Brain::joystickCallback(const booster_interface::msg::RemoteControllerState
     // prtDebug("joy!!", RED_CODE);
     string soundPack = config->soundPack;
 
-    // 通过手柄控制机器人, 不阻塞按键
+    // 閫氳繃鎵嬫焺鎺у埗鏈哄櫒浜? 涓嶉樆濉炴寜閿?
     if (
         fabs(joy.lx) > 0.1
         || fabs(joy.ly) > 0.1
@@ -1472,9 +1760,9 @@ void Brain::joystickCallback(const booster_interface::msg::RemoteControllerState
         // prtWarn("Axe manual take over end");
     }
 
-    // 按键响应顺序: LT 组合键, RT 组合键, 单键
-    if (joy.lt && !joy.rt) { // LT 组合键
-        // 用于在线调试参数
+    // 鎸夐敭鍝嶅簲椤哄簭: LT 缁勫悎閿? RT 缁勫悎閿? 鍗曢敭
+    if (joy.lt && !joy.rt) { // LT 缁勫悎閿?
+        // 鐢ㄤ簬鍦ㄧ嚎璋冭瘯鍙傛暟
         if (joy.hat_u || joy.hat_d)
         {
             config->vxFactor += 0.01 * (joy.hat_u ? 1.0 : -1.0);
@@ -1495,7 +1783,7 @@ void Brain::joystickCallback(const booster_interface::msg::RemoteControllerState
             );
         }
 
-        // 用于控制切换不同的状态
+        // 鐢ㄤ簬鎺у埗鍒囨崲涓嶅悓鐨勭姸鎬?
         if (joy.x)
         {
             tree->setEntry<int>("control_state", 1);
@@ -1527,11 +1815,11 @@ void Brain::joystickCallback(const booster_interface::msg::RemoteControllerState
         }
     }
 
-    if (joy.rt) { // RT 组合键
+    if (joy.rt) { // RT 缁勫悎閿?
         // Nothing for now
     }
 
-    // else, 单键位
+    // else, 鍗曢敭浣?
     if (!joy.lt && !joy.rt) {
         if (joy.lb) {
             tree->setEntry<bool>("assist_chase", true);
@@ -1566,21 +1854,21 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
 {
     data->timeLastGamecontrolMsg = get_clock()->now();
 
-    // 处理比赛的一级状态
-    auto lastGameState = tree->getEntry<string>("gc_game_state"); // 比赛的一级状态
+    // 澶勭悊姣旇禌鐨勪竴绾х姸鎬?
+    auto lastGameState = tree->getEntry<string>("gc_game_state"); // 姣旇禌鐨勪竴绾х姸鎬?
     vector<string> gameStateMap = {
-        "INITIAL", // 初始化状态, 球员在场外准备
-        "READY",   // 准备状态, 球员进场, 并走到自己的始发位置
-        "SET",     // 停止动作, 等待裁判机发出开始比赛的指令
-        "PLAY",    // 正常比赛
-        "END"      // 比赛结束
+        "INITIAL", // 鍒濆鍖栫姸鎬? 鐞冨憳鍦ㄥ満澶栧噯澶?
+        "READY",   // 鍑嗗鐘舵€? 鐞冨憳杩涘満, 骞惰蛋鍒拌嚜宸辩殑濮嬪彂浣嶇疆
+        "SET",     // 鍋滄鍔ㄤ綔, 绛夊緟瑁佸垽鏈哄彂鍑哄紑濮嬫瘮璧涚殑鎸囦护
+        "PLAY",    // 姝ｅ父姣旇禌
+        "END"      // 姣旇禌缁撴潫
     };
     string gameState = gameStateMap[static_cast<int>(msg.state)];
     tree->setEntry<string>("gc_game_state", gameState);
-    bool isKickOffSide = (msg.kick_off_team == config->teamId); // 我方是否是开球方
+    bool isKickOffSide = (msg.kick_off_team == config->teamId); // 鎴戞柟鏄惁鏄紑鐞冩柟
     tree->setEntry<bool>("gc_is_kickoff_side", isKickOffSide);
 
-    // 处理比赛的二级状态
+    // 澶勭悊姣旇禌鐨勪簩绾х姸鎬?
     string gameSubStateType;
     switch (static_cast<int>(msg.secondary_state)) {
         case 0:
@@ -1588,10 +1876,10 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
             data->realGameSubState = "NONE";
             break;
         case 3:
-            gameSubStateType = "TIMEOUT"; // 包含两队 timeout 和 裁判 timeout
+            gameSubStateType = "TIMEOUT"; // 鍖呭惈涓ら槦 timeout 鍜?瑁佸垽 timeout
             data->realGameSubState = "TIMEOUT";
             break;
-        // 暂时不处理其它状态, 除 TIMEOUT 外, 都按 FREE_KICK 处理
+        // 鏆傛椂涓嶅鐞嗗叾瀹冪姸鎬? 闄?TIMEOUT 澶? 閮芥寜 FREE_KICK 澶勭悊
         case 4:
             // gameSubStateType = "DIRECT_FREEKICK";
             gameSubStateType = "FREE_KICK";
@@ -1629,15 +1917,15 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
             gameSubStateType = "FREE_KICK";
             break;
     }
-    vector<string> gameSubStateMap = {"STOP", "GET_READY", "SET"};                               // STOP: 停下来; -> GET_READY: 移动到进攻或防守位置; -> SET: 站住不动
+    vector<string> gameSubStateMap = {"STOP", "GET_READY", "SET"};                               // STOP: 鍋滀笅鏉? -> GET_READY: 绉诲姩鍒拌繘鏀绘垨闃插畧浣嶇疆; -> SET: 绔欎綇涓嶅姩
     string gameSubState = gameSubStateMap[static_cast<int>(msg.secondary_state_info[1])];
     tree->setEntry<string>("gc_game_sub_state_type", gameSubStateType);
     tree->setEntry<string>("gc_game_sub_state", gameSubState);
-    bool isSubStateKickOffSide = (static_cast<int>(msg.secondary_state_info[0]) == config->teamId); // 在二级状态下, 我方是否是开球方. 例如, 当前二级状态为任意球, 我方是否是开任意球的一方
+    bool isSubStateKickOffSide = (static_cast<int>(msg.secondary_state_info[0]) == config->teamId); // 鍦ㄤ簩绾х姸鎬佷笅, 鎴戞柟鏄惁鏄紑鐞冩柟. 渚嬪, 褰撳墠浜岀骇鐘舵€佷负浠绘剰鐞? 鎴戞柟鏄惁鏄紑浠绘剰鐞冪殑涓€鏂?
     tree->setEntry<bool>("gc_is_sub_state_kickoff_side", isSubStateKickOffSide);
 
     // cout << "game state: " << gameState << " game sub state type: " << gameSubStateType << endl;
-    // 找到队的信息
+    // 鎵惧埌闃熺殑淇℃伅
     game_controller_interface::msg::TeamInfo myTeamInfo;
     game_controller_interface::msg::TeamInfo oppoTeamInfo;
     if (msg.teams[0].team_number == config->teamId)
@@ -1652,7 +1940,7 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
     }
     else
     {
-        // 数据包中没有包含我们的队，不应该再处理了
+        // 鏁版嵁鍖呬腑娌℃湁鍖呭惈鎴戜滑鐨勯槦锛屼笉搴旇鍐嶅鐞嗕簡
         prtErr(format("received invalid game controller message team0 %d, team1 %d, teamId %d",
             msg.teams[0].team_number, msg.teams[1].team_number, config->teamId));
         return;
@@ -1660,10 +1948,10 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
 
     int liveCount = 0;
     int oppoLiveCount = 0;
-    // 处理判罚状态. penalty[playerId - 1] 代表我方的球员是否处于判罚状态, 处理判罚状态意味着不能移动
+    // 澶勭悊鍒ょ綒鐘舵€? penalty[playerId - 1] 浠ｈ〃鎴戞柟鐨勭悆鍛樻槸鍚﹀浜庡垽缃氱姸鎬? 澶勭悊鍒ょ綒鐘舵€佹剰鍛崇潃涓嶈兘绉诲姩
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
         data->penalty[i] = static_cast<int>(myTeamInfo.players[i].penalty);
-        
+
         if (static_cast<int>(myTeamInfo.players[i].red_card_count) > 0) {
             data->penalty[i] = PENALTY_SUBSTITUTE;
         }
@@ -1683,22 +1971,22 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
     // cout << "penalty: " << data->penalty[0] << " " << data->penalty[1] << " " << data->penalty[2] << " " << data->penalty[3] << endl;
     // cout << "oppo penalty: " << data->oppoPenalty[0] << " " << data->oppoPenalty[1] << " " << data->oppoPenalty[2] << " " << data->oppoPenalty[3] << endl;
     bool lastIsUnderPenalty = tree->getEntry<bool>("gc_is_under_penalty");
-    bool isUnderPenalty = (data->penalty[config->playerId - 1] != PENALTY_NONE); // 当前 robot 是否被判罚中
+    bool isUnderPenalty = (data->penalty[config->playerId - 1] != PENALTY_NONE); // 褰撳墠 robot 鏄惁琚垽缃氫腑
     tree->setEntry<bool>("gc_is_under_penalty", isUnderPenalty);
-    if (isUnderPenalty && !lastIsUnderPenalty) tree->setEntry<bool>("odom_calibrated", false); // 被判罚了, 则需要重新进场, 因此需要重新定位
+    if (isUnderPenalty && !lastIsUnderPenalty) tree->setEntry<bool>("odom_calibrated", false); // 琚垽缃氫簡, 鍒欓渶瑕侀噸鏂拌繘鍦? 鍥犳闇€瑕侀噸鏂板畾浣?
 
-    // log game state   
+    // log game state
     log->setTimeNow();
     log->logToScreen(
         "tick/gamecontrol",
-        format("Player: %d  Role: %s PrimaryStriker: %s GameState: %s  SubStateType: %s  SubState: %s UnderPenalty: %d isKickoff: %d isSubStateKickoff: %d", 
+        format("Player: %d  Role: %s PrimaryStriker: %s GameState: %s  SubStateType: %s  SubState: %s UnderPenalty: %d isKickoff: %d isSubStateKickoff: %d",
             config->playerId, tree->getEntry<string>("player_role").c_str(), isPrimaryStriker() ? "Yes" : "No", gameState.c_str(), gameSubStateType.c_str(), gameSubState.c_str(), isUnderPenalty, isKickOffSide, isSubStateKickOffSide
             ),
         0xFFFFFFFF,
         30.0
     );
 
-    // FOR FUN 处理进球后的庆祝挥手的逻辑
+    // FOR FUN 澶勭悊杩涚悆鍚庣殑搴嗙鎸ユ墜鐨勯€昏緫
     data->score = static_cast<int>(myTeamInfo.score);
     data->oppoScore = static_cast<int>(oppoTeamInfo.score);
 }
@@ -1706,18 +1994,18 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
 void Brain::detectionsCallback(const vision_interface::msg::Detections &msg)
 {
     // std::lock_guard<std::mutex> guard(data->brainMutex);
-    
+
     // auto detection_time_stamp = msg.header.stamp;
     // rclcpp::Time timePoint(detection_time_stamp.sec, detection_time_stamp.nanosec);
     data->camConnected = true;
     auto timePoint = timePointFromHeader(msg.header);
 
     auto now = get_clock()->now();
-    data->timeLastDet = timePoint; // 用于在调试中输出延迟信息
+    data->timeLastDet = timePoint; // 鐢ㄤ簬鍦ㄨ皟璇曚腑杈撳嚭寤惰繜淇℃伅
 
     auto gameObjects = getGameObjects(msg);
 
-    // 对检测到的对象进行分组
+    // 瀵规娴嬪埌鐨勫璞¤繘琛屽垎缁?
     vector<GameObject> balls, goalposts, persons, robots, obstacles, markings;
     for (int i = 0; i < gameObjects.size(); i++)
     {
@@ -1730,7 +2018,7 @@ void Brain::detectionsCallback(const vision_interface::msg::Detections &msg)
         {
             persons.push_back(obj);
 
-            // 为了调试方便, 可以在 config 中设置 treat_person_as_robot, 使得 Person 被当作 Robot 处理
+            // 涓轰簡璋冭瘯鏂逛究, 鍙互鍦?config 涓缃?treat_person_as_robot, 浣垮緱 Person 琚綋浣?Robot 澶勭悊
             if (config->treatPersonAsRobot)
                 robots.push_back(obj);
         }
@@ -1740,13 +2028,13 @@ void Brain::detectionsCallback(const vision_interface::msg::Detections &msg)
             markings.push_back(obj);
     }
 
-    // 分别处理分组后的对象
+    // 鍒嗗埆澶勭悊鍒嗙粍鍚庣殑瀵硅薄
     detectProcessBalls(balls);
     detectProcessGoalposts(goalposts);
     detectProcessMarkings(markings);
     detectProcessRobots(robots);
 
-    // 处理并记录视野信息
+    // 澶勭悊骞惰褰曡閲庝俊鎭?
     detectProcessVisionBox(msg);
 
     // logVisionBox(timePoint);
@@ -1774,12 +2062,12 @@ void Brain::fieldLineCallback(const vision_interface::msg::LineSegments &msg)
     auto timePoint = timePointFromHeader(msg.header);
 
     auto now = get_clock()->now();
-    data->timeLastLineDet = timePoint; // 用于在调试中输出延迟信息
+    data->timeLastLineDet = timePoint; // 鐢ㄤ簬鍦ㄨ皟璇曚腑杈撳嚭寤惰繜淇℃伅
 
     vector<FieldLine> lines = {};
     FieldLine line;
 
-    double x0, y0, x1, y1, __; // __ is a placeholder for transformations 
+    double x0, y0, x1, y1, __; // __ is a placeholder for transformations
     for (int i = 0; i < msg.coordinates.size() / 4; i++) {
         int index = i * 4;
         line.posToRobot.x0 = msg.coordinates[index]; line.posOnCam.x0 = msg.coordinates_uv[index];
@@ -1802,16 +2090,16 @@ void Brain::fieldLineCallback(const vision_interface::msg::LineSegments &msg)
         vector<rerun::LineStrip2D> logLinesOnRobotFrame = {};
         vector<string> logLabels = {};
         vector<unsigned int> logColors = {};
-        
+
         for (int i = 0; i < lines.size(); i++) {
             auto line = lines[i];
             logLinesOnRobotFrame.push_back(rerun::LineStrip2D({
-                {line.posToRobot.x0, -line.posToRobot.y0}, 
-                {line.posToRobot.x1, -line.posToRobot.y1}, 
+                {line.posToRobot.x0, -line.posToRobot.y0},
+                {line.posToRobot.x1, -line.posToRobot.y1},
             }));
             logLinesOnField.push_back(rerun::LineStrip2D({
-                {line.posToField.x0, -line.posToField.y0}, 
-                {line.posToField.x1, -line.posToField.y1}, 
+                {line.posToField.x0, -line.posToField.y0},
+                {line.posToField.x1, -line.posToField.y1},
             }));
             logLinesOnCam.push_back(rerun::LineStrip2D({
                 {line.posOnCam.x0, line.posOnCam.y0},
@@ -1826,7 +2114,7 @@ void Brain::fieldLineCallback(const vision_interface::msg::LineSegments &msg)
             else if (line.type == LineType::TouchLine) {
                 label = "TouchLine";
                 color = 0xFF0000FF;
-            } 
+            }
             else if (line.type == LineType::MiddleLine) label = "MiddleLine";
             else if (line.type == LineType::PenaltyArea) label = "PenaltyArea";
             else if (line.type == LineType::GoalArea) label = "GoalArea";
@@ -1877,12 +2165,12 @@ void Brain::fieldLineCallback(const vision_interface::msg::LineSegments &msg)
         for (int i = 0; i < lines.size(); i++) {
             auto line = lines[i];
             logLinesOnRobotFrame.push_back(rerun::LineStrip2D({
-                {line.posToRobot.x0, -line.posToRobot.y0}, 
-                {line.posToRobot.x1, -line.posToRobot.y1}, 
+                {line.posToRobot.x0, -line.posToRobot.y0},
+                {line.posToRobot.x1, -line.posToRobot.y1},
             }));
             logLinesOnField.push_back(rerun::LineStrip2D({
-                {line.posToField.x0, -line.posToField.y0}, 
-                {line.posToField.x1, -line.posToField.y1}, 
+                {line.posToField.x0, -line.posToField.y0},
+                {line.posToField.x1, -line.posToField.y1},
             }));
             logLinesOnCam.push_back(rerun::LineStrip2D({
                 {line.posOnCam.x0, line.posOnCam.y0},
@@ -1920,24 +2208,24 @@ void Brain::odometerCallback(const booster_interface::msg::Odometer &msg)
     data->robotPoseToOdom.y = msg.y * config->robotOdomFactor;
     data->robotPoseToOdom.theta = msg.theta;
 
-    // 根据 Odom 信息, 更新机器人在 Field 坐标系中的位置
+    // 鏍规嵁 Odom 淇℃伅, 鏇存柊鏈哄櫒浜哄湪 Field 鍧愭爣绯讳腑鐨勪綅缃?
     transCoord(
         data->robotPoseToOdom.x, data->robotPoseToOdom.y, data->robotPoseToOdom.theta,
         data->odomToField.x, data->odomToField.y, data->odomToField.theta,
         data->robotPoseToField.x, data->robotPoseToField.y, data->robotPoseToField.theta);
 
-    // 发布tf变换
+    // 鍙戝竷tf鍙樻崲
     geometry_msgs::msg::TransformStamped transform;
     transform.header.stamp = this->get_clock()->now();
     transform.header.frame_id = "odom";
     transform.child_frame_id = "base_link";
-    
-    // 设置平移部分
+
+    // 璁剧疆骞崇Щ閮ㄥ垎
     transform.transform.translation.x = data->robotPoseToOdom.x;
     transform.transform.translation.y = data->robotPoseToOdom.y;
     transform.transform.translation.z = 0.0;
-    
-    // 设置旋转部分（从欧拉角转换为四元数）
+
+    // 璁剧疆鏃嬭浆閮ㄥ垎锛堜粠娆ф媺瑙掕浆鎹负鍥涘厓鏁帮級
     tf2::Quaternion q;
     q.setRPY(0, 0, data->robotPoseToOdom.theta);
     transform.transform.rotation.x = q.x();
@@ -1947,11 +2235,11 @@ void Brain::odometerCallback(const booster_interface::msg::Odometer &msg)
 
     log->setTimeNow();
     log->log("debug/odom_callback", rerun::TextLog(format("x: %.1f, y: %.1f, z: %.1f", data->robotPoseToOdom.x, data->robotPoseToOdom.y, data->robotPoseToOdom.theta)));
-    
-    // 广播tf变换
+
+    // 骞挎挱tf鍙樻崲
     tf_broadcaster_->sendTransform(transform);
 
-    // Log Odom 信息
+    // Log Odom 淇℃伅
 
     log->setTimeNow();
     auto color = 0x00FF00FF;
@@ -1975,13 +2263,13 @@ void Brain::imageCallback(const sensor_msgs::msg::Image &msg)
     counter++;
     if (counter % config->rerunLogImgInterval == 0)
     {
-        // 未防止摄像头连接不好时, 自动降低分辨率, 影响 CamTrackBall 的计算, 更新分辨率配置
+        // 鏈槻姝㈡憚鍍忓ご杩炴帴涓嶅ソ鏃? 鑷姩闄嶄綆鍒嗚鲸鐜? 褰卞搷 CamTrackBall 鐨勮绠? 鏇存柊鍒嗚鲸鐜囬厤缃?
         config->camPixX = msg.width;
         config->camPixY = msg.height;
         log->log("debug/imageCallback", rerun::TextLog(format("img width: %.d, img height: %.d", msg.width, msg.height)));
 
         cv::Mat image;
-        // 根据图像编码格式进行处理
+        // 鏍规嵁鍥惧儚缂栫爜鏍煎紡杩涜澶勭悊
         if (msg.encoding == "nv12" || msg.encoding == "NV12") {
             // NV12: Y plane (H x W) + interleaved UV (H/2 x W)
             size_t expected = (size_t)(msg.width * msg.height * 3 / 2);
@@ -1992,31 +2280,31 @@ void Brain::imageCallback(const sensor_msgs::msg::Image &msg)
             cv::Mat yuv(msg.height + msg.height / 2, msg.width, CV_8UC1, const_cast<uint8_t*>(msg.data.data()));
             cv::cvtColor(yuv, image, cv::COLOR_YUV2BGR_NV12);
         } else if (msg.encoding == "bgra8") {
-            // 创建 OpenCV Mat 对象，处理 BGRA 格式图像
+            // 鍒涘缓 OpenCV Mat 瀵硅薄锛屽鐞?BGRA 鏍煎紡鍥惧儚
             image = cv::Mat(msg.height, msg.width, CV_8UC4, const_cast<uint8_t *>(msg.data.data()));
             cv::Mat imageBGR;
-            // 将 BGRA 转换为 BGR，忽略 Alpha 通道
+            // 灏?BGRA 杞崲涓?BGR锛屽拷鐣?Alpha 閫氶亾
             cv::cvtColor(image, imageBGR, cv::COLOR_BGRA2BGR);
             image = imageBGR;
         } else if (msg.encoding == "bgr8") {
-            // 原有 BGR8 处理逻辑
+            // 鍘熸湁 BGR8 澶勭悊閫昏緫
             image = cv::Mat(msg.height, msg.width, CV_8UC3, const_cast<uint8_t *>(msg.data.data()));
         } else if (msg.encoding == "rgb8") {
-            // 原有 RGB8 处理逻辑
+            // 鍘熸湁 RGB8 澶勭悊閫昏緫
             image = cv::Mat(msg.height, msg.width, CV_8UC3, const_cast<uint8_t *>(msg.data.data()));
             cv::cvtColor(image, image, cv::COLOR_RGB2BGR);
         } else {
-            // 处理其他编码格式，或者记录错误日志
+            // 澶勭悊鍏朵粬缂栫爜鏍煎紡锛屾垨鑰呰褰曢敊璇棩蹇?
             prtErr(format("Unsupported image encoding: %s", msg.encoding.c_str()));
             return;
         }
 
-        // 压缩图像
+        // 鍘嬬缉鍥惧儚
         std::vector<uint8_t> compressed_image;
-        std::vector<int> compression_params = {cv::IMWRITE_JPEG_QUALITY, 10}; // 10 表示压缩质量，可以根据需要调整
+        std::vector<int> compression_params = {cv::IMWRITE_JPEG_QUALITY, 10}; // 10 琛ㄧず鍘嬬缉璐ㄩ噺锛屽彲浠ユ牴鎹渶瑕佽皟鏁?
         cv::imencode(".jpg", image, compressed_image, compression_params);
 
-        // 将压缩后的图像数据传递给 rerun
+        // 灏嗗帇缂╁悗鐨勫浘鍍忔暟鎹紶閫掔粰 rerun
         // double time = msg.header.stamp.sec + static_cast<double>(msg.header.stamp.nanosec) * 1e-9;
         // log->setTimeSeconds(time);
         log->setTimeSeconds(timePointFromHeader(msg.header).seconds());
@@ -2026,10 +2314,10 @@ void Brain::imageCallback(const sensor_msgs::msg::Image &msg)
 
 void Brain::headPoseCallback(const geometry_msgs::msg::Pose& msg)
 {
-    // 计算 head_to_base 矩阵
+    // 璁＄畻 head_to_base 鐭╅樀
     Eigen::Matrix4d headToBase = Eigen::Matrix4d::Identity();
-    
-    // 从四元数获取旋转矩阵
+
+    // 浠庡洓鍏冩暟鑾峰彇鏃嬭浆鐭╅樀
     Eigen::Quaterniond q(
         msg.orientation.w,
         msg.orientation.x,
@@ -2037,30 +2325,30 @@ void Brain::headPoseCallback(const geometry_msgs::msg::Pose& msg)
         msg.orientation.z
     );
     headToBase.block<3,3>(0,0) = q.toRotationMatrix();
-    
-    // 设置平移向量
+
+    // 璁剧疆骞崇Щ鍚戦噺
     headToBase.block<3,1>(0,3) = Eigen::Vector3d(
         msg.position.x,
         msg.position.y,
         msg.position.z
     );
 
-    // // 定义并计算 cam_to_head 矩阵
+    // // 瀹氫箟骞惰绠?cam_to_head 鐭╅樀
     // Eigen::Matrix4d camToHead;
     // camToHead << 0,  0,  1,  0,
     //             -1,  0,  0,  0,
     //              0, -1,  0,  0,
     //              0,  0,  0,  1;
 
-    // 计算 cam_to_base 矩阵并存储
+    // 璁＄畻 cam_to_base 鐭╅樀骞跺瓨鍌?
     data->camToRobot = headToBase * config->camToHead;
 }
 
 void Brain::recoveryStateCallback(const booster_interface::msg::RawBytesMsg &msg)
 {
-    // uint8_t state; // IS_READY = 0, IS_FALLING = 1, HAS_FALLEN = 2, IS_GETTING_UP = 3,  
+    // uint8_t state; // IS_READY = 0, IS_FALLING = 1, HAS_FALLEN = 2, IS_GETTING_UP = 3,
     // uint8_t is_recovery_available; // 1 for available, 0 for not available
-    // 使用 RobotRecoveryState 结构，将msg里面的msg转换为RobotRecoveryState
+    // 浣跨敤 RobotRecoveryState 缁撴瀯锛屽皢msg閲岄潰鐨刴sg杞崲涓篟obotRecoveryState
     try
     {
         const std::vector<unsigned char>& buffer = msg.msg;
@@ -2076,7 +2364,7 @@ void Brain::recoveryStateCallback(const booster_interface::msg::RawBytesMsg &msg
         this->data->recoveryState = recoveryStateMap[static_cast<int>(recoveryState.state)];
         this->data->isRecoveryAvailable = static_cast<bool>(recoveryState.is_recovery_available);
         this->data->currentRobotModeIndex = static_cast<int>(recoveryState.current_planner_index);
-        
+
         // cout << "recoveryState: " << static_cast<int>(recoveryState.state) << endl;
         // cout << "recovery is available: " << static_cast<int>(recoveryState.is_recovery_available) << endl;
         // cout << "current planner idx: " << static_cast<int>(recoveryState.current_planner_index) << endl;
@@ -2118,7 +2406,7 @@ int Brain::goalpostCntOnFieldLine(const FieldLine line, const double margin) {
 
 bool Brain::isBallOnFieldLine(const FieldLine line, const double margin) {
     auto ballPos = data->ball.posToField;
-    Point2D point = {ballPos.x, ballPos.y}; 
+    Point2D point = {ballPos.x, ballPos.y};
     return fabs(pointPerpDistToLine(point, line.posToField)) < margin;
 }
 
@@ -2133,19 +2421,19 @@ void Brain::identifyFieldLine(FieldLine& line) {
     int bestIndex = -1;
     for (int i = 0; i < mapLines.size(); i++) {
         mapLine = mapLines[i];
-        confidence = line.dir == mapLine.dir ? 
+        confidence = line.dir == mapLine.dir ?
             probPartOfLine(line.posToField, mapLine.posToField)
             : 0.0;
 
         // Boost confidence with other features
-        if (mapLine.type == LineType::GoalLine) { 
+        if (mapLine.type == LineType::GoalLine) {
             confidence += 0.3 * markCntOnFieldLine("TCross", line, 0.2);
             confidence += 0.5 * goalpostCntOnFieldLine(line, 0.2);
             if (
                 isBallOnFieldLine(line)
                 && (tree->getEntry<string>("gc_game_sub_state") == "GET_READY" || tree->getEntry<string>("gc_game_sub_state") == "SET")
                 && (data->realGameSubState == "CORNER_KICK")
-            ) confidence += 0.3; // 角球时, 球在底线上
+            ) confidence += 0.3; // 瑙掔悆鏃? 鐞冨湪搴曠嚎涓?
         }
         if (mapLine.type == LineType::MiddleLine) {
             confidence += 0.3 * markCntOnFieldLine("XCross", line, 0.2);
@@ -2153,17 +2441,17 @@ void Brain::identifyFieldLine(FieldLine& line) {
                 isBallOnFieldLine(line)
                 && (tree->getEntry<string>("gc_game_sub_state") == "GET_READY" || tree->getEntry<string>("gc_game_sub_state") == "SET")
                 && (data->realGameSubState == "GOAL_KICK")
-            ) confidence += 0.3; // 门球时, 球在中线上
+            ) confidence += 0.3; // 闂ㄧ悆鏃? 鐞冨湪涓嚎涓?
         }
         if (mapLine.type == LineType::TouchLine) {
             if (
                 isBallOnFieldLine(line)
                 && (tree->getEntry<string>("gc_game_sub_state") == "GET_READY" || tree->getEntry<string>("gc_game_sub_state") == "SET")
                 && (data->realGameSubState == "GOAL_KICK" || data->realGameSubState == "CORNER_KICK" || data->realGameSubState == "THROW_IN")
-            ) confidence += 0.3; // 发角球, 门球和边线球时, 球在边线上
+            ) confidence += 0.3; // 鍙戣鐞? 闂ㄧ悆鍜岃竟绾跨悆鏃? 鐞冨湪杈圭嚎涓?
         }
-        
-        // 防止将 goalarealine 误认为 goalline
+
+        // 闃叉灏?goalarealine 璇涓?goalline
         auto fd = config->fieldDimensions;
         if (
             mapLine.type == LineType::GoalLine
@@ -2171,7 +2459,7 @@ void Brain::identifyFieldLine(FieldLine& line) {
             && fabs(line.posToField.y1) < fd.goalAreaWidth / 2 + 0.5
         ) confidence -= 0.3;
 
-        // 防止将 penalty area 误认为 touchline
+        // 闃叉灏?penalty area 璇涓?touchline
         if (
             mapLine.type == LineType::TouchLine
             && min(fabs(line.posToField.x0), fabs(line.posToField.x1)) > fd.length / 2.0 -  fd.penaltyAreaLength - 0.5
@@ -2181,7 +2469,7 @@ void Brain::identifyFieldLine(FieldLine& line) {
         double length = norm(line.posToField.x0 - line.posToField.x1, line.posToField.y0 - line.posToField.y1);
         if (length < 0.5) confidence -= 0.5;
         else if (length < 1.0) confidence -= 0.1;
-        
+
         if (confidence > bestConfidence) {
             secondBestConfidence = bestConfidence;
             bestConfidence = confidence;
@@ -2201,7 +2489,7 @@ void Brain::identifyFieldLine(FieldLine& line) {
         return;
     }
 
-    // else 
+    // else
     line.type = LineType::NA;
     line.half = LineHalf::NA;
     line.side = LineSide::NA;
@@ -2215,7 +2503,7 @@ void Brain::identifyMarking(GameObject& marking) {
     int mmIndex = -1;
     for (int i = 0; i < config->mapMarkings.size(); i++) {
        auto mm = config->mapMarkings[i];
-       
+
        if (mm.type != marking.label) continue;
 
        double dist = norm(marking.posToField.x - mm.x, marking.posToField.y - mm.y);
@@ -2225,7 +2513,7 @@ void Brain::identifyMarking(GameObject& marking) {
            minDist = dist;
            mmIndex = i;
        } else if (dist < secMinDist) {
-           secMinDist = dist; 
+           secMinDist = dist;
        }
     }
 
@@ -2234,7 +2522,7 @@ void Brain::identifyMarking(GameObject& marking) {
         mmIndex >=0 && mmIndex < config->mapMarkings.size()
         && minDist < 1.5 * 14 / fd.length // 1.0 for adultsize
         && secMinDist - minDist > 1.5 * 14 / fd.length // 2.0 for adultsize
-        // && marking.confidence > 70 
+        // && marking.confidence > 70
     ) {
         marking.id = mmIndex;
         marking.name = config->mapMarkings[mmIndex].name;
@@ -2255,17 +2543,17 @@ void Brain::identifyGoalpost(GameObject& goalpost) {
 
     if (goalpost.posToField.y > 0) side = "L";
     else side = "R";
-    
+
     goalpost.id = 0;
     goalpost.name = half + side;
     goalpost.idConfidence = 1.0;
-    // TODO 参考 markings, 做更为精细的 goalpostid
+    // TODO 鍙傝€?markings, 鍋氭洿涓虹簿缁嗙殑 goalpostid
 }
 
 vector<FieldLine> Brain::processFieldLines(vector<FieldLine>& fieldLines) {
     vector<FieldLine> original = fieldLines;
     vector<FieldLine> res;
-    
+
 
     int sizeBefore = original.size();
     // merge lines that are actually the same line
@@ -2306,7 +2594,7 @@ vector<FieldLine> Brain::processFieldLines(vector<FieldLine>& fieldLines) {
         }
     }
 
-    // identify each line 
+    // identify each line
     for (int i = 0; i < res.size(); i++) {
         identifyFieldLine(res[i]);
     }
@@ -2332,7 +2620,7 @@ vector<GameObject> Brain::getGameObjects(const vision_interface::msg::Detections
         gObj.color = obj.color;
 
         if (obj.target_uv.size() == 2)
-        { // 地面标志点的精确像素位置信息
+        { // 鍦伴潰鏍囧織鐐圭殑绮剧‘鍍忕礌浣嶇疆淇℃伅
             gObj.precisePixelPoint.x = static_cast<double>(obj.target_uv[0]);
             gObj.precisePixelPoint.y = static_cast<double>(obj.target_uv[1]);
         }
@@ -2344,32 +2632,32 @@ vector<GameObject> Brain::getGameObjects(const vision_interface::msg::Detections
         gObj.confidence = obj.confidence;
         gObj.positionConfidence = obj.position_confidence;
 
-        // 深度优先
+        // 娣卞害浼樺厛
         // if (obj.position.size() > 0 && !(obj.position[0] == 0 && obj.position[1] == 0))
-        // { // 深度测距成功， 以深度测距为准
+        // { // 娣卞害娴嬭窛鎴愬姛锛?浠ユ繁搴︽祴璺濅负鍑?
         //     gObj.posToRobot.x = obj.position[0];
         //     gObj.posToRobot.y = obj.position[1];
         // }
         // else
-        // { // 深度测距失败，以投影距离为准
+        // { // 娣卞害娴嬭窛澶辫触锛屼互鎶曞奖璺濈涓哄噯
         //     gObj.posToRobot.x = obj.position_projection[0];
         //     gObj.posToRobot.y = obj.position_projection[1];
-        // } // 注意，z 值没有用到
+        // } // 娉ㄦ剰锛寊 鍊兼病鏈夌敤鍒?
 
-        // 不用深度测距, 直接用投影距离
+        // 涓嶇敤娣卞害娴嬭窛, 鐩存帴鐢ㄦ姇褰辫窛绂?
         gObj.posToRobot.x = obj.position_projection[0];
         gObj.posToRobot.y = obj.position_projection[1];
 
-        // 计算角度
+        // 璁＄畻瑙掑害
         gObj.range = norm(gObj.posToRobot.x, gObj.posToRobot.y);
         gObj.yawToRobot = atan2(gObj.posToRobot.y, gObj.posToRobot.x);
-        gObj.pitchToRobot = atan2(config->robotHeight, gObj.range); // 注意这是一个近似值
+        gObj.pitchToRobot = atan2(config->robotHeight, gObj.range); // 娉ㄦ剰杩欐槸涓€涓繎浼煎€?
 
-        // 计算对象在 field 坐标系中的位置
+        // 璁＄畻瀵硅薄鍦?field 鍧愭爣绯讳腑鐨勪綅缃?
         transCoord(
             gObj.posToRobot.x, gObj.posToRobot.y, 0,
             data->robotPoseToField.x, data->robotPoseToField.y, data->robotPoseToField.theta,
-            gObj.posToField.x, gObj.posToField.y, gObj.posToField.z // 注意, z 没有在其它地方使用, 这里仅为参数占位使用
+            gObj.posToField.x, gObj.posToField.y, gObj.posToField.z // 娉ㄦ剰, z 娌℃湁鍦ㄥ叾瀹冨湴鏂逛娇鐢? 杩欓噷浠呬负鍙傛暟鍗犱綅浣跨敤
         );
 
         res.push_back(gObj);
@@ -2382,23 +2670,23 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
 {
     static rclcpp::Time lastSeenRealBallTime;
     double bestConfidence = 0;
-    int indexRealBall = -1;  // 认为哪一个球是真的, -1 表示没有检测到球
+    int indexRealBall = -1;  // 璁や负鍝竴涓悆鏄湡鐨? -1 琛ㄧず娌℃湁妫€娴嬪埌鐞?
 
-    // 找出最可能的真球
+    // 鎵惧嚭鏈€鍙兘鐨勭湡鐞?
     for (int i = 0; i < ballObjs.size(); i++)
     {
         auto ballObj = ballObjs[i];
         auto oldBall = data->ball;
 
-        // 防止把天上的灯识别为球
+        // 闃叉鎶婂ぉ涓婄殑鐏瘑鍒负鐞?
         if (ballObj.posToRobot.x < -0.5 || ballObj.posToRobot.x > 15.0)
             continue;
 
-        // 排除在场外太远的球, 注意这个功能会影响 cahse 等功能. 先不采用.
+        // 鎺掗櫎鍦ㄥ満澶栧お杩滅殑鐞? 娉ㄦ剰杩欎釜鍔熻兘浼氬奖鍝?cahse 绛夊姛鑳? 鍏堜笉閲囩敤.
         // if (isBallOut(2.0, 2.0))
         //     continue;
 
-        // 如果检测出的球与上次看到的球, 距离和时间都很近, 则对其 confidence 进行适当加分
+        // 濡傛灉妫€娴嬪嚭鐨勭悆涓庝笂娆＄湅鍒扮殑鐞? 璺濈鍜屾椂闂撮兘寰堣繎, 鍒欏鍏?confidence 杩涜閫傚綋鍔犲垎
         // double c = ballObj.confidence;
         // double oldC = oldBall.confidence;
         // double msecs = msecsSince(oldBall.timePoint);
@@ -2412,14 +2700,14 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
         //     ballObj.confidence
         // )));
 
-        // 判断: 如果置信度太低, 则认为是误检
+        // 鍒ゆ柇: 濡傛灉缃俊搴﹀お浣? 鍒欒涓烘槸璇
         if (ballObj.confidence < config->ballConfidenceThreshold)
             continue;
 
-        // TODO 加入更多排除参数, 例如在身体上, 明显在球场外, 位置突然大幅度变化等
-        // 被遮挡的条件要加入. 如果突然消失, 没有遮挡的话, 则只相信一小会儿, 如果有遮挡, 可以相信比较长的时间.
+        // TODO 鍔犲叆鏇村鎺掗櫎鍙傛暟, 渚嬪鍦ㄨ韩浣撲笂, 鏄庢樉鍦ㄧ悆鍦哄, 浣嶇疆绐佺劧澶у箙搴﹀彉鍖栫瓑
+        // 琚伄鎸＄殑鏉′欢瑕佸姞鍏? 濡傛灉绐佺劧娑堝け, 娌℃湁閬尅鐨勮瘽, 鍒欏彧鐩镐俊涓€灏忎細鍎? 濡傛灉鏈夐伄鎸? 鍙互鐩镐俊姣旇緝闀跨殑鏃堕棿.
 
-        // 找出剩下的球中, 置信度最高的
+        // 鎵惧嚭鍓╀笅鐨勭悆涓? 缃俊搴︽渶楂樼殑
         if (ballObj.confidence > bestConfidence)
         {
             bestConfidence = ballObj.confidence;
@@ -2430,7 +2718,7 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
     auto now = this->get_clock()->now();
 
     if (indexRealBall >= 0)
-    { // 检测到球了
+    { // 妫€娴嬪埌鐞冧簡
         data->ballDetected = true;
 
         data->ball = ballObjs[indexRealBall];
@@ -2449,10 +2737,10 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
         updateBallOut();
 
         lastSeenRealBallTime = now;
-        data->lose_ball = false;        
+        data->lose_ball = false;
     }
     else
-    { // 没有检测到球
+    { // 娌℃湁妫€娴嬪埌鐞?
         log->setTimeNow();
         // log->log("image/detection_boxes_realball", rerun::Clear::FLAT);
         data->ballDetected = false;
@@ -2474,13 +2762,13 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
         // data->ball.confidence = 0; // DO NOT set confidence to 0, confidence decay depends on this.
     }
 
-    // 计算机器人到球的向量, 在 field 坐标系中的方向
+    // 璁＄畻鏈哄櫒浜哄埌鐞冪殑鍚戦噺, 鍦?field 鍧愭爣绯讳腑鐨勬柟鍚?
     data->robotBallAngleToField = atan2(data->ball.posToField.y - data->robotPoseToField.y, data->ball.posToField.x - data->robotPoseToField.x);
 }
 
 void Brain::detectProcessMarkings(const vector<GameObject> &markingObjs)
 {
-    // // for testing 测距稳定性 ---------
+    // // for testing 娴嬭窛绋冲畾鎬?---------
     // for (int i = 0; i < markingObjs.size(); i++) {
     //    auto m = markingObjs[i];
     //    if (m.label != "PenaltyPoint" || m.posToField.x < 0.0) continue;
@@ -2494,21 +2782,21 @@ void Brain::detectProcessMarkings(const vector<GameObject> &markingObjs)
     // }
     // // end testing
 
-    const double confidenceValve = 50; // confidence 低于这个阈值, 排除
+    const double confidenceValve = 50; // confidence 浣庝簬杩欎釜闃堝€? 鎺掗櫎
     vector<GameObject> markings = {};
     for (int i = 0; i < markingObjs.size(); i++)
     {
         auto marking = markingObjs[i];
 
-        // 判断: 如果置信度太低, 则认为是误检
+        // 鍒ゆ柇: 濡傛灉缃俊搴﹀お浣? 鍒欒涓烘槸璇
         if (marking.confidence < confidenceValve)
             continue;
 
-        // 排除天的上误识别标记
+        // 鎺掗櫎澶╃殑涓婅璇嗗埆鏍囪
         if (marking.posToRobot.x < -0.5 || marking.posToRobot.x > 15.0)
             continue;
 
-        // 如果通过了重重考验, 则记入 brain
+        // 濡傛灉閫氳繃浜嗛噸閲嶈€冮獙, 鍒欒鍏?brain
         identifyMarking(marking);
         markings.push_back(marking);
     }
@@ -2526,7 +2814,7 @@ void Brain::detectProcessMarkings(const vector<GameObject> &markingObjs)
             labels.push_back(format("%s c=%.2f", m.name.c_str(), m.idConfidence));
         }
     }
-    
+
     log->log("field/identified_markings",
         rerun::LineStrips2D(rerun::Collection<rerun::components::LineStrip2D>(circles))
        .with_radii(0.01)
@@ -2536,13 +2824,13 @@ void Brain::detectProcessMarkings(const vector<GameObject> &markingObjs)
 
 void Brain::detectProcessGoalposts(const vector<GameObject> &goalpostObjs)
 {
-    const double confidenceValve = 50; // confidence 低于这个阈值, 排除
+    const double confidenceValve = 50; // confidence 浣庝簬杩欎釜闃堝€? 鎺掗櫎
     vector<GameObject> goalposts = {};
 
     for (int i = 0; i < goalpostObjs.size(); i++) {
         auto goalpost = goalpostObjs[i];
 
-        // 判断: 如果置信度太低, 则认为是误检
+        // 鍒ゆ柇: 濡傛灉缃俊搴﹀お浣? 鍒欒涓烘槸璇
         if (goalpost.confidence < confidenceValve)
             continue;
 
@@ -2563,7 +2851,7 @@ void Brain::detectProcessGoalposts(const vector<GameObject> &goalpostObjs)
             labels.push_back(format("%s c=%.2f", p.name.c_str(), p.idConfidence));
         }
     }
-    
+
     // log->log("field/identified_goalposts",
     //     rerun::LineStrips2D(rerun::Collection<rerun::components::LineStrip2D>(circles))
     //     .with_radii(0.01)
@@ -2580,30 +2868,30 @@ void Brain::detectProcessRobots(const vector<GameObject> &robotObjs) {
     //     if (rbt.confidence < 50) continue;
 
     //     // find nearest robot in memory
-    //     double minDist = 1e6; 
+    //     double minDist = 1e6;
     //     int minIndex = -1;
     //     for (int j = 0; j < robots.size(); j++) {
     //         auto rm = robots[j];
     //         double dist = norm(rm.posToField.x - rbt.posToField.x, rm.posToField.y - rbt.posToField.y);
     //         if (dist < minDist) {
-    //             minDist = dist; 
+    //             minDist = dist;
     //             minIndex = j;
     //         }
     //     }
     //     // prtDebug(format("minDist = %.2f", minDist));
-    //     if (minDist < 0.5) { // 认为是同一个机器人
+    //     if (minDist < 0.5) { // 璁や负鏄悓涓€涓満鍣ㄤ汉
     //         robots[minIndex] = rbt;
-    //     } else { // 认为是不同的机器人
+    //     } else { // 璁や负鏄笉鍚岀殑鏈哄櫒浜?
     //         robots.push_back(rbt);
     //     }
     // }
-    // // 注意这里不清理已经看不见的机器人, 而是在 updateMemory 中进行处理.
+    // // 娉ㄦ剰杩欓噷涓嶆竻鐞嗗凡缁忕湅涓嶈鐨勬満鍣ㄤ汉, 鑰屾槸鍦?updateMemory 涓繘琛屽鐞?
 
     vector<GameObject> robots = {};
     for (int i = 0; i < robotObjs.size(); i++) {
         auto rbt = robotObjs[i];
         if (rbt.confidence < 50) continue;
-        
+
         // else
         robots.push_back(rbt);
     }
@@ -2612,17 +2900,17 @@ void Brain::detectProcessRobots(const vector<GameObject> &robotObjs) {
 }
 
 
-void Brain::detectProcessVisionBox(const vision_interface::msg::Detections &msg) {    
+void Brain::detectProcessVisionBox(const vision_interface::msg::Detections &msg) {
     // auto detection_time_stamp = msg.header.stamp;
     // rclcpp::Time timePoint(detection_time_stamp.sec, detection_time_stamp.nanosec);
     auto timePoint = timePointFromHeader(msg.header);
 
-    // 处理并记录视野信息
+    // 澶勭悊骞惰褰曡閲庝俊鎭?
     VisionBox vbox;
     vbox.timePoint = timePoint;
     for (int i = 0; i < msg.corner_pos.size(); i++) vbox.posToRobot.push_back(msg.corner_pos[i]);
 
-    // 处理左上与右上两点 x 小于 0 , 实际为无限远的场景
+    // 澶勭悊宸︿笂涓庡彸涓婁袱鐐?x 灏忎簬 0 , 瀹為檯涓烘棤闄愯繙鐨勫満鏅?
     const double VISION_LIMIT = 20.0;
     vector<vector<double>> v = {};
     for (int i = 0; i < 4; i++) {
@@ -2642,7 +2930,7 @@ void Brain::detectProcessVisionBox(const vision_interface::msg::Detections &msg)
         }
     }
 
-    // 转换到 field 坐标系中
+    // 杞崲鍒?field 鍧愭爣绯讳腑
     for (int i = 0; i < 5; i++) {
         double xr, yr, xf, yf, __;
         xr = vbox.posToRobot[2 * i];
@@ -2655,8 +2943,8 @@ void Brain::detectProcessVisionBox(const vision_interface::msg::Detections &msg)
         vbox.posToField.push_back(xf);
         vbox.posToField.push_back(yf);
     }
-    
-    // 一次性将结果赋值到 data 中
+
+    // 涓€娆℃€у皢缁撴灉璧嬪€煎埌 data 涓?
     data->visionBox = vbox;
 }
 
@@ -2682,8 +2970,8 @@ void Brain::logDetection(const vector<GameObject> &gameObjects, bool logBounding
         // log->log("robotframe/detection_points", rerun::Clear::FLAT);
         return;
     }
-    
-    // else 
+
+    // else
     rclcpp::Time timePoint = gameObjects[0].timePoint;
     log->setTimeSeconds(timePoint.seconds());
 
@@ -2732,14 +3020,14 @@ void Brain::logDetection(const vector<GameObject> &gameObjects, bool logBounding
             displayLabel += "[" + obj.color + "]";
         }
         labels.push_back(rerun::Text(
-            format("%s x:%.2f y:%.2f c:%.1f", 
+            format("%s x:%.2f y:%.2f c:%.1f",
                 displayLabel.c_str(),
-                obj.posToRobot.x, 
-                obj.posToRobot.y, 
+                obj.posToRobot.x,
+                obj.posToRobot.y,
                 obj.confidence)
             )
         );
-        points.push_back(rerun::Vec2D{obj.posToField.x, -obj.posToField.y}); // y 取反是因为 rerun Viewer 的坐标系是左手系。转一下看起来更方便。
+        points.push_back(rerun::Vec2D{obj.posToField.x, -obj.posToField.y}); // y 鍙栧弽鏄洜涓?rerun Viewer 鐨勫潗鏍囩郴鏄乏鎵嬬郴銆傝浆涓€涓嬬湅璧锋潵鏇存柟渚裤€?
         points_r.push_back(rerun::Vec2D{obj.posToRobot.x, -obj.posToRobot.y});
         mins.push_back(rerun::Vec2D{obj.boundingBox.xmin, obj.boundingBox.ymin});
         sizes.push_back(rerun::Vec2D{obj.boundingBox.xmax - obj.boundingBox.xmin, obj.boundingBox.ymax - obj.boundingBox.ymin});
@@ -2766,7 +3054,7 @@ void Brain::logDetection(const vector<GameObject> &gameObjects, bool logBounding
         colors.push_back(color);
     }
 
-    
+
     if (logBoundingBox) log->log("image/detection_boxes",
              rerun::Boxes2D::from_mins_and_sizes(mins, sizes)
                  .with_labels(labels)
@@ -2796,8 +3084,8 @@ void Brain::logMemRobots() {
         // log->log("robotframe/mem_robots", rerun::Clear::FLAT);
         return;
     }
-    
-    // else 
+
+    // else
     log->setTimeNow();
     // vector<rerun::Vec2D> points;
     vector<rerun::LineStrip2D> circles;
@@ -2806,7 +3094,7 @@ void Brain::logMemRobots() {
     {
         auto rbt = rbts[i];
         log->logRobot("field/robots", Pose2D({rbt.posToField.x, rbt.posToField.y, -M_PI}), 0xFF0000FF);
-        // circles.push_back(log->circle(rbt.posToField.x, -rbt.posToField.y, 0.5)); // y 取反是因为 rerun Viewer 的坐标系是左手系。转一下看起来更方便。
+        // circles.push_back(log->circle(rbt.posToField.x, -rbt.posToField.y, 0.5)); // y 鍙栧弽鏄洜涓?rerun Viewer 鐨勫潗鏍囩郴鏄乏鎵嬬郴銆傝浆涓€涓嬬湅璧锋潵鏇存柟渚裤€?
         // points_r.push_back(rerun::Vec2D{rbt.posToRobot.x, -rbt.posToRobot.y});
     }
 
@@ -2827,8 +3115,8 @@ void Brain::logMemRobots() {
 void Brain::logObstacles() {
     // log->setTimeNow();
     // time is set on the outside
-    
-    // 记录障碍物(即有被占用的网格)
+
+    // 璁板綍闅滅鐗?鍗虫湁琚崰鐢ㄧ殑缃戞牸)
     auto obs = data->getObstacles();
     vector<rerun::Vec2D> points;
     vector<rerun::Color> colors;
@@ -2837,7 +3125,7 @@ void Brain::logObstacles() {
     for (int i = 0; i < obs.size(); i++) {
         auto o = obs[i];
 
-        if (o.confidence < occThreshold) continue; // 这个逻辑覆盖了后面的逻辑, 注掉可以以不同颜色 log 不同的置信度.
+        if (o.confidence < occThreshold) continue; // 杩欎釜閫昏緫瑕嗙洊浜嗗悗闈㈢殑閫昏緫, 娉ㄦ帀鍙互浠ヤ笉鍚岄鑹?log 涓嶅悓鐨勭疆淇″害.
 
         points.push_back(rerun::Vec2D{o.posToField.x, -o.posToField.y});
         double mem_msecs = get_parameter("obstacle_avoidance.obstacle_memory_msecs").as_double();
@@ -2849,7 +3137,7 @@ void Brain::logObstacles() {
         labels.push_back(rerun::Text(format("count: %.0f age: %.0fms", o.confidence, age)));
     }
     log->log(
-        "field/obstacles", 
+        "field/obstacles",
         rerun::Points2D(points)
         .with_colors(colors)
         .with_labels(labels)
@@ -2859,46 +3147,46 @@ void Brain::logObstacles() {
 
 void Brain::logDepth(int grid_x_count, int grid_y_count, vector<vector<int>> &grid_occupied, vector<rerun::Vec3D> &points_robot) {
     // time is set on the outside
-    const double grid_size = get_parameter("obstacle_avoidance.grid_size").as_double();  // 网格大小
+    const double grid_size = get_parameter("obstacle_avoidance.grid_size").as_double();  // 缃戞牸澶у皬
     const double x_min = 0.0, x_max = get_parameter("obstacle_avoidance.max_x").as_double();
     const double y_min = -get_parameter("obstacle_avoidance.max_y").as_double();
     const double y_max = -y_min;
 
-    // 记录原始点云和网格
+    // 璁板綍鍘熷鐐逛簯鍜岀綉鏍?
     vector<rerun::Position3D> vertices;
     vector<rerun::Color> vertex_colors;
     vector<array<uint32_t, 3>> triangle_indices;
-    const int OCCUPANCY_THRESHOLD = get_parameter("obstacle_avoidance.occupancy_threshold").as_int(); // 设置一个显示用的阈值
+    const int OCCUPANCY_THRESHOLD = get_parameter("obstacle_avoidance.occupancy_threshold").as_int(); // 璁剧疆涓€涓樉绀虹敤鐨勯槇鍊?
 
     for (int i = 0; i < grid_x_count; i++) {
         for (int j = 0; j < grid_y_count; j++) {
             if (grid_occupied[i][j] > 0) {
-                // 计算有障碍网格的四个顶点坐标
+                // 璁＄畻鏈夐殰纰嶇綉鏍肩殑鍥涗釜椤剁偣鍧愭爣
                 double x0 = x_min + i * grid_size;
                 double y0 = y_min + j * grid_size;
                 double x1 = x0 + grid_size;
                 double y1 = y0 + grid_size;
 
-                // 添加四个顶点
+                // 娣诲姞鍥涗釜椤剁偣
                 uint32_t base_index = vertices.size();
                 vertices.push_back({x0, y0, 0.0});
                 vertices.push_back({x1, y0, 0.0});
                 vertices.push_back({x1, y1, 0.0});
                 vertices.push_back({x0, y1, 0.0});
 
-                // 设置颜色：根据占用情况设置不同的红色
+                // 璁剧疆棰滆壊锛氭牴鎹崰鐢ㄦ儏鍐佃缃笉鍚岀殑绾㈣壊
                 rerun::Color color;
                 if (grid_occupied[i][j] > OCCUPANCY_THRESHOLD) {
-                    color = rerun::Color(255, 0, 0, 255);  // RGBA, 红色
+                    color = rerun::Color(255, 0, 0, 255);  // RGBA, 绾㈣壊
                 } else {
-                    color = rerun::Color(255, 255, 0, 255);  // RGBA, 黄色
+                    color = rerun::Color(255, 255, 0, 255);  // RGBA, 榛勮壊
                 }
                 vertex_colors.push_back(color);
                 vertex_colors.push_back(color);
                 vertex_colors.push_back(color);
                 vertex_colors.push_back(color);
 
-                // 添加两个三角形面
+                // 娣诲姞涓や釜涓夎褰㈤潰
                 triangle_indices.push_back({base_index, base_index + 1, base_index + 2});
                 triangle_indices.push_back({base_index, base_index + 2, base_index + 3});
             }
@@ -2917,20 +3205,20 @@ void Brain::logDepth(int grid_x_count, int grid_y_count, vector<vector<int>> &gr
             point_colors.push_back((r << 24) | (g << 16) | 0xFF);
         }
     }
-    
+
     log->log("depth/depth_points",
             rerun::Points3D(points_robot)
                 .with_radii(0.01)
                 .with_colors(point_colors)
     );
-    
+
     log->log("depth/grid_mesh",
             rerun::Mesh3D(vertices)
                 .with_vertex_colors(vertex_colors)
                 .with_triangle_indices(triangle_indices)
     );
 
-    // 记录 ball exclusion box
+    // 璁板綍 ball exclusion box
     double r = get_parameter("obstacle_avoidance.ball_exclusion_radius").as_double();
     double h = get_parameter("obstacle_avoidance.ball_exclusion_height").as_double();
     log->log(
@@ -2938,7 +3226,7 @@ void Brain::logDepth(int grid_x_count, int grid_y_count, vector<vector<int>> &gr
         rerun::Boxes3D::from_centers_and_half_sizes(
             {{ data->ball.posToRobot.x, data->ball.posToRobot.y, h/2}},
             {{ r, r, h/2}})
-        .with_colors(0x00FF0044)     // 半透明绿色
+        .with_colors(0x00FF0044)     // 鍗婇€忔槑缁胯壊
     );
 }
 
@@ -2994,15 +3282,15 @@ void Brain::updateFieldPos(GameObject &obj) {
 void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
 {
     try {
-        // 检查图像数据是否有效
+        // 妫€鏌ュ浘鍍忔暟鎹槸鍚︽湁鏁?
         if (msg.data.empty() || msg.height == 0 || msg.width == 0) {
             RCLCPP_WARN(get_logger(), "Received empty depth image");
             return;
         }
 
-        // 创建深度图像和转换
+        // 鍒涘缓娣卞害鍥惧儚鍜岃浆鎹?
         cv::Mat depthFloat;
-        // 根据图像编码格式进行处理
+        // 鏍规嵁鍥惧儚缂栫爜鏍煎紡杩涜澶勭悊
         if (msg.encoding == "16UC1" || msg.encoding == "mono16") {
             size_t expected = (size_t)msg.width * msg.height * sizeof(uint16_t);
             if (msg.data.size() < expected) {
@@ -3010,20 +3298,20 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
                 return;
             }
             cv::Mat depthRaw(msg.height, msg.width, CV_16UC1, const_cast<uint8_t*>(msg.data.data()));
-            depthRaw.convertTo(depthFloat, CV_32FC1, 1.0 / 1000.0); // 若是实际深度单位 mm
+            depthRaw.convertTo(depthFloat, CV_32FC1, 1.0 / 1000.0); // 鑻ユ槸瀹為檯娣卞害鍗曚綅 mm
         } else if (msg.encoding == "32FC1") {
-            // 检查数据大小是否正确
+            // 妫€鏌ユ暟鎹ぇ灏忔槸鍚︽纭?
             size_t expected_size = msg.height * msg.width * sizeof(float);
             if (msg.data.size() != expected_size) {
-                RCLCPP_ERROR(get_logger(), "Depth image size mismatch: expected %zu, got %zu", 
+                RCLCPP_ERROR(get_logger(), "Depth image size mismatch: expected %zu, got %zu",
                     expected_size, msg.data.size());
                 return;
             }
 
-            // 直接创建 32 位浮点数格式的深度图像
-            depthFloat = cv::Mat(msg.height, msg.width, CV_32FC1, 
+            // 鐩存帴鍒涘缓 32 浣嶆诞鐐规暟鏍煎紡鐨勬繁搴﹀浘鍍?
+            depthFloat = cv::Mat(msg.height, msg.width, CV_32FC1,
                 const_cast<float*>(reinterpret_cast<const float*>(msg.data.data()))).clone();
-            
+
         } else {
             RCLCPP_ERROR(get_logger(), "Unsupported depth image encoding: %s", msg.encoding.c_str());
             return;
@@ -3036,19 +3324,19 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
         const double cx = config->camcx;
         const double cy = config->camcy;
         // cout << "fx = " << fx << " fy = " << fy << " cx = " << cx << " cy = " << cy << endl;
-        
-        // 定义网格参数
-        const double grid_size = get_parameter("obstacle_avoidance.grid_size").as_double();  // 网格大小
+
+        // 瀹氫箟缃戞牸鍙傛暟
+        const double grid_size = get_parameter("obstacle_avoidance.grid_size").as_double();  // 缃戞牸澶у皬
         const double x_min = 0.0, x_max = get_parameter("obstacle_avoidance.max_x").as_double();
         const double y_min = -get_parameter("obstacle_avoidance.max_y").as_double();
         const double y_max = -y_min;
         const int grid_x_count = static_cast<int>((x_max - x_min) / grid_size);
         const int grid_y_count = static_cast<int>((y_max - y_min) / grid_size);
-        
-        // 创建网格占用数组
+
+        // 鍒涘缓缃戞牸鍗犵敤鏁扮粍
         vector<vector<int>> grid_occupied(grid_x_count, vector<int>(grid_y_count, 0));
-        
-        // 处理深度图像点
+
+        // 澶勭悊娣卞害鍥惧儚鐐?
         const int sampleStep = get_parameter("obstacle_avoidance.depth_sample_step").as_int();
         for (int y = 0; y < msg.height; y += sampleStep)
         {
@@ -3057,23 +3345,23 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
                 float depth = depthFloat.at<float>(y, x);
                 if (depth > 0)
                 {
-                    // 转换到相机坐标系
+                    // 杞崲鍒扮浉鏈哄潗鏍囩郴
                     double x_cam = (x - cx) * depth / fx;
                     double y_cam = (y - cy) * depth / fy;
                     double z_cam = depth;
 
-                    // 转换到机器人坐标系
+                    // 杞崲鍒版満鍣ㄤ汉鍧愭爣绯?
                     Eigen::Vector4d point_cam(x_cam, y_cam, z_cam, 1.0);
                     Eigen::Vector4d point_robot = data->camToRobot * point_cam;
-                    
-                    // 记录点用于可视化
+
+                    // 璁板綍鐐圭敤浜庡彲瑙嗗寲
                     points_robot.push_back(rerun::Vec3D{point_robot(0), point_robot(1), point_robot(2)});
-                    
-                    // 更新网格占用情况
+
+                    // 鏇存柊缃戞牸鍗犵敤鎯呭喌
                     const double Z_THRESHOLD = get_parameter("obstacle_avoidance.obstacle_min_height").as_double();
-                    const double EXCLUDE_MAX_X = get_parameter("obstacle_avoidance.exclusion_x").as_double(); // 排除机器人自己的身体
+                    const double EXCLUDE_MAX_X = get_parameter("obstacle_avoidance.exclusion_x").as_double(); // 鎺掗櫎鏈哄櫒浜鸿嚜宸辩殑韬綋
                     const double EXCLUDE_MIN_X = -EXCLUDE_MAX_X;
-                    const double EXCLUDE_MAX_Y = get_parameter("obstacle_avoidance.exclusion_y").as_double(); // 排除机器人自己的身体
+                    const double EXCLUDE_MAX_Y = get_parameter("obstacle_avoidance.exclusion_y").as_double(); // 鎺掗櫎鏈哄櫒浜鸿嚜宸辩殑韬綋
                     const double EXCLUDE_MIN_Y = -EXCLUDE_MAX_Y;
 
                     auto isInRange = [&]() {
@@ -3087,15 +3375,15 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
                     auto isBall = [&]() {
                         double r = get_parameter("obstacle_avoidance.ball_exclusion_radius").as_double();
                         double h = get_parameter("obstacle_avoidance.ball_exclusion_height").as_double();
-                        return fabs(point_robot(0) - data->ball.posToRobot.x) < r 
+                        return fabs(point_robot(0) - data->ball.posToRobot.x) < r
                             && fabs(point_robot(1) - data->ball.posToRobot.y) < r
                             && point_robot(2) < h;
                     };
 
                     if (
-                        point_robot(2) > Z_THRESHOLD 
+                        point_robot(2) > Z_THRESHOLD
                         && isInRange()
-                        &&!isSelfBody() 
+                        &&!isSelfBody()
                         &&!isBall()
                     )
                     {
@@ -3110,7 +3398,7 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
         auto obs_old = data->getObstacles();
         vector<GameObject> obs_new = {};
 
-        // 本次看到的记入 obstables
+        // 鏈鐪嬪埌鐨勮鍏?obstables
         for (int i = 0; i < grid_x_count; i++) {
             for (int j = 0; j < grid_y_count; j++) {
                 if (grid_occupied[i][j] > 0) {
@@ -3126,18 +3414,18 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
             }
         }
 
-        // 清理旧 obstacle
+        // 娓呯悊鏃?obstacle
         for (int i = 0; i < obs_old.size(); i++) {
-           // 先把当前视野范围内的旧 obstacle 清空, 注意角度只是粗略计算, 并通过 offset 适当扩大了一些范围.
+           // 鍏堟妸褰撳墠瑙嗛噹鑼冨洿鍐呯殑鏃?obstacle 娓呯┖, 娉ㄦ剰瑙掑害鍙槸绮楃暐璁＄畻, 骞堕€氳繃 offset 閫傚綋鎵╁ぇ浜嗕竴浜涜寖鍥?
             double visionLeft = data->headYaw + config->camAngleX / 2;
             double visionRight = data->headYaw - config->camAngleX / 2;
             auto obs = obs_old[i];
             const double offset = 0.20;
             double obsYawLeft = atan2(obs.posToRobot.y - offset, obs.posToRobot.x + offset);
             double obsYawRight = atan2(obs.posToRobot.y + offset, obs.posToRobot.x + offset);
-            if (obsYawLeft < visionLeft && obsYawRight > visionRight) continue; 
+            if (obsYawLeft < visionLeft && obsYawRight > visionRight) continue;
 
-            // 如果旧的 obs 与新的 obs 太过接近, 则认为旧的 obs 已经不存在, 防止边界情况下 obs 堆积
+            // 濡傛灉鏃х殑 obs 涓庢柊鐨?obs 澶繃鎺ヨ繎, 鍒欒涓烘棫鐨?obs 宸茬粡涓嶅瓨鍦? 闃叉杈圭晫鎯呭喌涓?obs 鍫嗙Н
             bool found = false;
             for (int j = 0; j < obs_new.size(); j++) {
                 auto obs_n = obs_new[j];
@@ -3153,8 +3441,8 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
             obs_new.push_back(obs);
         }
 
-        
-        data->setObstacles(obs_new); // note: 此处不清空超时的旧 obstacles, 而在 tick 中清理
+
+        data->setObstacles(obs_new); // note: 姝ゅ涓嶆竻绌鸿秴鏃剁殑鏃?obstacles, 鑰屽湪 tick 涓竻鐞?
         log->setTimeSeconds(timePointFromHeader(msg.header).seconds());
         logDepth(grid_x_count, grid_y_count, grid_occupied, points_robot);
         logObstacles();
@@ -3219,7 +3507,7 @@ double Brain::calcAvoidDir(double startAngle, double safeDist) {
     bool leftFound = res[0] > 0.5;
     bool rightFound = res[2] > 0.5;
     double angleLeft = res[1];
-    double angleRight = res[3]; 
+    double angleRight = res[3];
     double determinedAngle = 0;
     if (leftFound && rightFound) {
         determinedAngle = fabs(angleLeft) < fabs(angleRight) ? angleLeft : angleRight;
@@ -3238,19 +3526,19 @@ void Brain::updateLogFile() {
         log->updateLogFilePath();
 }
 
-// ------------------------------------------------------ 调试 log 相关 ------------------------------------------------------
+// ------------------------------------------------------ 璋冭瘯 log 鐩稿叧 ------------------------------------------------------
 void Brain::logObstacleDistance() {
     log->setTimeNow();
 
     // log obstacle distance for test
-    vector<rerun::LineStrip2D> lines = {};   
+    vector<rerun::LineStrip2D> lines = {};
     for (int i = 0; i < 180; i++) {
         double angle = i * M_PI / 90;
         double dist = min(5.0, distToObstacle(angle));
         double angle_f = toPInPI(data->robotPoseToField.theta + angle);
         lines.push_back(
             rerun::LineStrip2D({
-                {data->robotPoseToField.x, -data->robotPoseToField.y}, 
+                {data->robotPoseToField.x, -data->robotPoseToField.y},
                 {data->robotPoseToField.x + cos(-angle_f) * dist, -data->robotPoseToField.y + sin(-angle_f) * dist}
             })
         );
@@ -3267,7 +3555,7 @@ void Brain::logObstacleDistance() {
 void Brain::logLags() {
     log->setTimeNow();
     auto color = 0x00FF00FF;
-    
+
     double detLag = msecsSince(data->timeLastDet);
     if (detLag > 500) color = 0xFF0000FF;
     else if (detLag > 100) color = 0xFFFF00FF;
@@ -3392,8 +3680,8 @@ void Brain::logStatusToConsole() {
             config->playerRole.c_str()
         );
         msg += format(
-            "GAME:\n\tState: %s\tKickOffSide: %s\tisKickingOff: %s(%s)\n\tSubType: %s\tSubState: %s\tSubKickOffSide: %s\tisKickingOff: %s(%s)\n\tScore: %s\tJustScored: %s\n\tLiveCount: %d\tOppoLiveCount: %d\tPrimary: %s\n\n", 
-            gameState.c_str(), 
+            "GAME:\n\tState: %s\tKickOffSide: %s\tisKickingOff: %s(%s)\n\tSubType: %s\tSubState: %s\tSubKickOffSide: %s\tisKickingOff: %s(%s)\n\tScore: %s\tJustScored: %s\n\tLiveCount: %d\tOppoLiveCount: %d\tPrimary: %s\n\n",
+            gameState.c_str(),
             tree->getEntry<bool>("gc_is_kickoff_side") ? "YES" : "NO",
             data->isKickingOff ? "YES" : "NO",
             msecsSince(data->kickoffStartTime)/1000 > 100 ? "--" : to_string(msecsSince(data->kickoffStartTime)/1000).c_str(),
@@ -3408,7 +3696,7 @@ void Brain::logStatusToConsole() {
             data->oppoLiveCount,
             isPrimaryStriker() ? "YES" : "NO"
         );
-        
+
         msg += getComLogString();
 
         msg += format(
@@ -3457,6 +3745,8 @@ string Brain::getComLogString() {
         ss << GREEN_CODE << "YES" << CYAN_CODE;
     else
         ss << RED_CODE << "NO" << CYAN_CODE;
+    ss << "\tTeamRole: " << teamRoleCodeName(data->tmMyTeamRole);
+    ss << "\tCaptain: [" << data->tmCaptainDecisionId << "] S=" << data->tmAssignedStrikerId << " P=" << data->tmAssignedSupporterId;
     ss << "    TMCMD: " << data->tmCmdId << format("\tCMD: [%d]%d", data->tmMyCmdId, data->tmMyCmd);
     ss << "\n";
 
@@ -3466,9 +3756,9 @@ string Brain::getComLogString() {
         auto status = data->tmStatus[idx];
         ss << "P" << idx + 1 << "[";
         if (status.isAlive)
-            ss << GREEN_CODE << "★" << CYAN_CODE;
-        else 
-            ss << RED_CODE << "☆" << CYAN_CODE;
+            ss << GREEN_CODE << "鈽? << CYAN_CODE;
+        else
+            ss << RED_CODE << "鈽? << CYAN_CODE;
         ss << "]\tCost: " << format("%.1f", status.cost);
         ss << "\tLead: ";
         if (status.isLead)
@@ -3476,11 +3766,13 @@ string Brain::getComLogString() {
         else
             ss << RED_CODE << "NO" << CYAN_CODE;
         ss << "\tState: " << robotStateCodeName(status.robotState);
+        ss << "\tTeamRole: " << teamRoleCodeName(status.teamRole);
+        ss << "\tCaptain: [" << status.captainDecisionId << "] S=" << status.assignedStrikerId << " P=" << status.assignedSupporterId;
         ss << "\tCMD: " << format("[%d]%d", status.cmdId, status.cmd);
         ss << "\tLag: " << format("%.0f", msecsSince(status.timeLastCom)) << "ms" << "\n";
     }
     ss << "\n";
-    
+
     return ss.str();
 }
 
@@ -3500,11 +3792,11 @@ void Brain::playSoundForFun() {
         {
             if (!gameStarted) playSound(soundPack + "-ready", 2000);
             else if (tree->getEntry<bool>("we_just_scored")) playSound(soundPack + "-celebrate", 2000);
-            else playSound(soundPack + "-regret", 2000);   
+            else playSound(soundPack + "-regret", 2000);
         }
 
         if (gcGameState == "PLAY") {
-            auto decision = tree->getEntry<string>("decision"); 
+            auto decision = tree->getEntry<string>("decision");
             if (decision == "chase") playSound(soundPack + "-chase", 5000);
             else if (decision == "adjust") playSound(soundPack + "-adjust", 2000);
             else if (decision == "kick") playSound(soundPack + "-kick", 2000);
@@ -3513,31 +3805,31 @@ void Brain::playSoundForFun() {
 }
 
 // =============================================================================
-//  请将以下代码追加到 src/brain/src/brain.cpp 的最末尾 (在最后的 } 之后或者之前均可，确保在 namespace 外或类定义外)
+//  璇峰皢浠ヤ笅浠ｇ爜杩藉姞鍒?src/brain/src/brain.cpp 鐨勬渶鏈熬 (鍦ㄦ渶鍚庣殑 } 涔嬪悗鎴栬€呬箣鍓嶅潎鍙紝纭繚鍦?namespace 澶栨垨绫诲畾涔夊)
 // =============================================================================
 
 /**
- * 计算当前向 dir 方向踢球的价值的大小.
+ * 璁＄畻褰撳墠鍚?dir 鏂瑰悜韪㈢悆鐨勪环鍊肩殑澶у皬.
  */
 double Brain::kickValue(double dir)
 {
-    // 简单的价值评估：如果是朝向对方球门方向，价值高
-    // 这里是一个基础实现，你可以根据策略需要修改
+    // 绠€鍗曠殑浠峰€艰瘎浼帮細濡傛灉鏄湞鍚戝鏂圭悆闂ㄦ柟鍚戯紝浠峰€奸珮
+    // 杩欓噷鏄竴涓熀纭€瀹炵幇锛屼綘鍙互鏍规嵁绛栫暐闇€瑕佷慨鏀?
     auto fd = config->fieldDimensions;
     double goalDir = atan2(0.0 - data->robotPoseToField.y, fd.length/2.0 - data->robotPoseToField.x);
     double diff = fabs(toPInPI(dir - goalDir));
-    
-    // 角度偏差越小，价值越高。范围 [0, 1]
-    return max(0.0, 1.0 - diff / M_PI); 
+
+    // 瑙掑害鍋忓樊瓒婂皬锛屼环鍊艰秺楂樸€傝寖鍥?[0, 1]
+    return max(0.0, 1.0 - diff / M_PI);
 }
 
 /**
- * 计算当前的急迫度
- * 0: 安全, 1: 有威胁, 2: 危险
+ * 璁＄畻褰撳墠鐨勬€ヨ揩搴?
+ * 0: 瀹夊叏, 1: 鏈夊▉鑳? 2: 鍗遍櫓
  */
 double Brain::threatLevel()
 {
-    // 基础实现：如果有敌人在附近(2米内)，则认为有威胁
+    // 鍩虹瀹炵幇锛氬鏋滄湁鏁屼汉鍦ㄩ檮杩?2绫冲唴)锛屽垯璁や负鏈夊▉鑳?
     double minOpponentDist = 100.0;
     auto robots = data->getRobots();
     for(const auto& r : robots) {
@@ -3553,33 +3845,33 @@ double Brain::threatLevel()
 }
 
 /**
- * 判断是否适合定向踢球
+ * 鍒ゆ柇鏄惁閫傚悎瀹氬悜韪㈢悆
  */
 bool Brain::isAngleGoodForDirectionalKick(double goalPostMargin)
 {
-    // 复用通用的角度判断逻辑，或者添加特定逻辑
+    // 澶嶇敤閫氱敤鐨勮搴﹀垽鏂€昏緫锛屾垨鑰呮坊鍔犵壒瀹氶€昏緫
     return isAngleGood(goalPostMargin, "kick");
 }
 
 /**
- * 检查前方扇形区域是否有障碍物
+ * 妫€鏌ュ墠鏂规墖褰㈠尯鍩熸槸鍚︽湁闅滅鐗?
  */
 bool Brain::isFrontRangeClear(double startAngle, double endAngle, double safeDist, double step)
 {
-    // 遍历角度范围，检查每个角度上的最近障碍物距离
+    // 閬嶅巻瑙掑害鑼冨洿锛屾鏌ユ瘡涓搴︿笂鐨勬渶杩戦殰纰嶇墿璺濈
     for (double ang = startAngle; ang <= endAngle; ang += step) {
         if (distToObstacle(ang) < safeDist) {
-            return false; // 发现障碍物，不空闲
+            return false; // 鍙戠幇闅滅鐗╋紝涓嶇┖闂?
         }
     }
-    return true; // 区域内无障碍物
+    return true; // 鍖哄煙鍐呮棤闅滅鐗?
 }
 
 /**
- * 发布视觉校准参数
+ * 鍙戝竷瑙嗚鏍″噯鍙傛暟
  */
 /**
- * 发布视觉校准参数
+ * 鍙戝竷瑙嗚鏍″噯鍙傛暟
  */
 void Brain::pubCalParamMsg(double pitch, double yaw, double z)
 {
@@ -3588,7 +3880,7 @@ void Brain::pubCalParamMsg(double pitch, double yaw, double z)
         msg.pitch_compensation = pitch;
         msg.yaw_compensation = yaw;
         msg.z_compensation = z;
-        
+
         pubCalParam->publish(msg);
     }
 }

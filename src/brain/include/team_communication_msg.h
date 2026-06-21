@@ -11,7 +11,9 @@ struct TeamCommunicationMsg
     int teamId;
     int playerId;
     int playerRole; // 1: striker, 2: goal_keeper, 3: unknown
+    int teamRole = TEAM_ROLE_UNKNOWN; // 战术角色: goalkeeper / striker / supporter
     bool isAlive; // 是否在场上, 且没有在罚时中
+    bool isFallen = false; // 是否倒地
     bool isLead; // 是否在控球状态
     bool ballDetected;
     bool ballLocationKnown;
@@ -23,6 +25,9 @@ struct TeamCommunicationMsg
     double kickDir;
     double thetaRb;
     int robotState = ROBOT_STATE_UNKNOWN; // 高层机器人状态编码, 便于守门员/队友做快速判定
+    int assignedStrikerId = 0; // 守门员当前判定的主攻球员 id
+    int assignedSupporterId = 0; // 守门员当前判定的辅助球员 id
+    int captainDecisionId = 0; // 守门员角色分配决策序号
     int cmdId; // 每个 player 发布时, 需要将 cmdId + 1. 用来代表发布的顺序. 
     int cmd; // 百位为 1 时, 代表自己要球控球. 十位为 1 时, 代表守门员要求另一个球员接替守门员角色, 此时个位数字代表接替球员的 playerId. 例如: 100, 代表自己要球控球, 另一个 striker 进入辅助角色; 011, 代表守门员要出击, 要求 1 号球员接替守门.  
 };

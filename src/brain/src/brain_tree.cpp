@@ -719,6 +719,10 @@ NodeStatus Assist::tick() {
     const double oppGoalX = fd.length / 2.0;
     const int rank = brain->data->tmMyCostRank;
     const bool aggressiveAssist = brain->data->liveCount >= 3; // 3 人以上时，允许更积极的前插接应
+    const int selfId = brain->config->playerId;
+    const int strikerId = brain->data->tmAssignedStrikerId;
+    const double supportLateralGap = aggressiveAssist ? 1.8 : 1.6;
+    const double supportForwardOffset = aggressiveAssist ? 0.2 : 0.0;
 
     auto calcBlockLineY = [&](double targetX) {
         const double denom = ballPos.x - ownGoalX;
@@ -727,10 +731,54 @@ NodeStatus Assist::tick() {
         }
         return ballPos.y * (targetX - ownGoalX) / denom;
     };
+    auto getAssignedStrikerPose = [&]() {
+        Pose2D pose = robotPose;
+        bool valid = false;
+
+        if (strikerId == selfId) {
+            pose = robotPose;
+            valid = true;
+        } else if (strikerId > 0) {
+            int idx = strikerId - 1;
+            if (idx >= 0 && idx < HL_MAX_NUM_PLAYERS) {
+                const auto &tmStatus = brain->data->tmStatus[idx];
+                if (tmStatus.isAlive && !tmStatus.isFallen) {
+                    pose = tmStatus.robotPoseToField;
+                    valid = true;
+                }
+            }
+        }
+
+        return pair<Pose2D, bool>(pose, valid);
+    };
+    auto calcSupportTargetAroundStriker = [&](const Pose2D &strikerPose) {
+        Pose2D pose = strikerPose;
+        double sideBias = robotPose.y - strikerPose.y;
+        int sideSign =
+            fabs(sideBias) > 0.25
+            ? (sideBias > 0.0 ? 1 : -1)
+            : ((ballPos.y - strikerPose.y) >= 0.0 ? -1 : 1);
+        pose.x = strikerPose.x + supportForwardOffset;
+        pose.y = strikerPose.y + sideSign * supportLateralGap;
+        return pose;
+    };
+
+    auto [strikerPose, hasAssignedStrikerPose] = getAssignedStrikerPose();
 
     // rank 0 在 Assist 状态下是异常情况（通常是只剩我自己或切换瞬间），这里退化为 rank 1 逻辑.
-    // 
-    if (brain->data->tmMyCostRank == 0) {
+    //
+    if ((rank == 0 || rank == 1) && hasAssignedStrikerPose) {
+        targetPose = calcSupportTargetAroundStriker(strikerPose);
+        log(format(
+            "support planner active: striker=%d strikerPos=(%.2f, %.2f) target=(%.2f, %.2f) rank=%d",
+            strikerId,
+            strikerPose.x,
+            strikerPose.y,
+            targetPose.x,
+            targetPose.y,
+            rank
+        ));
+    } else if (brain->data->tmMyCostRank == 0) {
         // Bug 修复：当没有队友在线（或我是 cost 最低的）时，也需要计算防守位置
         // 这种情况发生在：队友被罚下，但我仍然处于 Assist 状态
         targetPose.x = ballPos.x - 2.0;

@@ -16,7 +16,7 @@
 5. [足球定位校准说明](./ball_localization_calibration.md)
 6. [Brain 15 天冲刺规划](./brain_fast_iteration_plan.md)
 7. [球定位误差预算与修复顺序](./ball_error_budget_and_fix_plan.md)
-8. [机器人状态语音测试清单](./robot_state_voice_checklist.md)
+8. [测试清单](./list.md)
 
 如果你只想快速定位：
 
@@ -27,4 +27,4 @@
 - 想调球的初始距离精度、看地面拟合校准：看 [足球定位校准说明](./ball_localization_calibration.md)
 - 想分析为什么球会测远、为什么会跳、应该先修哪里：看 [球定位误差预算与修复顺序](./ball_error_budget_and_fix_plan.md)
 - 想做守门员队长、传球配合、brain 快速拆模块：看 [Brain 15 天冲刺规划](./brain_fast_iteration_plan.md)
-- 想后续上实机时快速验证状态播报和 rerun 状态链路：看 [机器人状态语音测试清单](./robot_state_voice_checklist.md)
+- 想后续上实机时统一验证状态播报、rerun 链路、球路预测和协作逻辑：看 [测试清单](./list.md)

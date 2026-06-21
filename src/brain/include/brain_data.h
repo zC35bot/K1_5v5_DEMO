@@ -137,11 +137,15 @@ public:
     int tmMyCmd = 0; // 我最后发出的指令;
     int tmMyCmdId = 0; // 我最后发出的指令的 ID; 
     int tmReceivedCmd = 0; // 收到队友的指令. 当 tmCmdId 与收到的 cmdId 不同时, 这个值会被更新为收到的 Cmd, 执行后会回到 0;
+    int tmCaptainDecisionId = 0; // 最近一次守门员角色仲裁决策序号
+    int tmAssignedStrikerId = 0; // 守门员当前分配的主攻球员 id
+    int tmAssignedSupporterId = 0; // 守门员当前分配的辅助球员 id
     bool tmImLead = true; // 当前我是否在控球.
     bool tmImAlive = true; // 当前我是否在上场中. 以裁判机为准.
     double tmMyCost = 0.; // 我接近球的成本, 用于多机配合. 基本上 cost 相当于我踢到球需要花的秒数.
     int tmMyCostRank = 0; // 我接近球的成本排名, 用于多机配合. 基本上 cost 相当于我踢到球需要花的秒数.
     int myStrikerIDRank = 0; // 我的 ID 在前锋中的排名, 用于多机配合. 
+    int tmMyTeamRole = TEAM_ROLE_UNKNOWN; // 当前我被分配的战术角色
     bool tmImInVisualKick = false; // 自己是否处于 visual kick 模式
     bool shouldExitRLVisionKick = false; // 是否需要主动退出 visual kick 模式
 
