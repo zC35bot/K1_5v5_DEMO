@@ -23,6 +23,37 @@ bool getPlayerFieldPose(const Brain *brain, int playerId, Pose2D &pose)
     return true;
 }
 
+Point calcDefensiveBallReference(
+    const Brain *brain,
+    const Point &fallbackBallPosToField,
+    double lookaheadSecs,
+    bool preferBreach
+)
+{
+    Point ref = fallbackBallPosToField;
+    if (!brain || !brain->data) return ref;
+
+    if (preferBreach && brain->data->ballWillBreach) {
+        ref.x = brain->data->ballBreachPoint.x;
+        ref.y = brain->data->ballBreachPoint.y;
+        ref.z = 0.0;
+        return ref;
+    }
+
+    const auto &predictions = brain->data->predictedBallPos;
+    if (predictions.empty()) return ref;
+
+    const double stepSecs = std::max(1e-3, brain->data->ballPredictStepIntervalMsecs / 1000.0);
+    const int lookaheadIdx = std::min(
+        static_cast<int>(predictions.size()) - 1,
+        std::max(0, static_cast<int>(std::round(lookaheadSecs / stepSecs)))
+    );
+    ref.x = predictions[lookaheadIdx][0];
+    ref.y = predictions[lookaheadIdx][1];
+    ref.z = 0.0;
+    return ref;
+}
+
 Pose2D calcSupportTargetAroundStriker(
     const Brain *brain,
     const Pose2D &strikerPose,

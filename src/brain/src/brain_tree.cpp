@@ -722,6 +722,7 @@ NodeStatus GoalieGuard::onRunning()
 {
     const auto fd = brain->config->fieldDimensions;
     const auto ballPos = brain->data->ball.posToField;
+    const Point defensiveBallRef = support_position_planner::calcDefensiveBallReference(brain, ballPos, 0.8, true);
     const auto robotPose = brain->data->robotPoseToField;
 
     double distTolerance = getInput<double>("dist_tolerance").value();
@@ -743,17 +744,17 @@ NodeStatus GoalieGuard::onRunning()
 
     Pose2D targetPose;
     targetPose.x = -fd.length / 2.0 + distToGoalline;
-    if (ballPos.x + fd.length / 2.0 < distToGoalline) {
-        targetPose.y = ballPos.y > 0 ? fd.goalWidth / 4.0 : -fd.goalWidth / 4.0;
+    if (defensiveBallRef.x + fd.length / 2.0 < distToGoalline) {
+        targetPose.y = defensiveBallRef.y > 0 ? fd.goalWidth / 4.0 : -fd.goalWidth / 4.0;
     } else {
-        targetPose.y = ballPos.y * distToGoalline / max(0.2, ballPos.x + fd.length / 2.0);
+        targetPose.y = defensiveBallRef.y * distToGoalline / max(0.2, defensiveBallRef.x + fd.length / 2.0);
         targetPose.y = cap(targetPose.y, fd.goalWidth / 2.0 - 0.2, -fd.goalWidth / 2.0 + 0.2);
     }
 
     const double dx = targetPose.x - robotPose.x;
     const double dy = targetPose.y - robotPose.y;
     const double dist = norm(dx, dy);
-    const double targetYaw = atan2(ballPos.y - robotPose.y, ballPos.x - robotPose.x);
+    const double targetYaw = atan2(defensiveBallRef.y - robotPose.y, defensiveBallRef.x - robotPose.x);
     const double deltaTheta = toPInPI(targetYaw - robotPose.theta);
     const bool atBlockingPose = dist < distTolerance && fabs(deltaTheta) < thetaTolerance;
 
@@ -770,12 +771,12 @@ NodeStatus GoalieGuard::onRunning()
     }
 
     const bool ballMovingToOwnGoal = ballVelX < -fabs(squatEnableBallSpeedX);
-    const bool ballInsideGoalWindow = fabs(ballPos.y) < fd.goalWidth / 2.0 + squatBallYMargin;
-    const bool ballNearGoalMouth = ballPos.x < squatEnableBallX;
+    const bool ballInsideGoalWindow = fabs(defensiveBallRef.y) < fd.goalWidth / 2.0 + squatBallYMargin;
+    const bool ballNearGoalMouth = defensiveBallRef.x < squatEnableBallX;
     const bool shouldSquat = atBlockingPose && ballNearGoalMouth && ballMovingToOwnGoal && ballInsideGoalWindow;
 
     if (shouldSquat) {
-        const double ballRelY = ballPos.y - robotPose.y;
+        const double ballRelY = defensiveBallRef.y - robotPose.y;
         string squatMode = "center";
         if (ballRelY > 0.15) squatMode = "left";
         else if (ballRelY < -0.15) squatMode = "right";
@@ -792,7 +793,7 @@ NodeStatus GoalieGuard::onRunning()
 
     const bool shouldKeepSquat =
         _isSquatting
-        && ballPos.x < squatDisableBallX
+        && defensiveBallRef.x < squatDisableBallX
         && ballInsideGoalWindow
         && dist < squatRecoverPoseDist;
     if (!shouldKeepSquat) {
@@ -848,6 +849,7 @@ NodeStatus GoalieDecideV2::tick()
     bool iKnowBallPos = brain->tree->getEntry<bool>("ball_location_known");
     bool tmBallPosReliable = brain->tree->getEntry<bool>("tm_ball_pos_reliable");
     bool ballWillBreach = brain->tree->getEntry<bool>("ball_will_breach");
+    Point defensiveBallRef = support_position_planner::calcDefensiveBallReference(brain, brain->data->ball.posToField, 0.8, true);
     string goalieMode = brain->tree->getEntry<string>("goalie_mode");
     double interceptLeadSecs = max(0.0, (brain->data->ballInterceptTime - brain->get_clock()->now()).seconds());
 
@@ -862,11 +864,11 @@ NodeStatus GoalieDecideV2::tick()
 
     bool shouldGuard =
         (iKnowBallPos || tmBallPosReliable)
-        && brain->data->ball.posToField.x < (goalieMode == "guard" ? guardExitBallX : guardEnterBallX);
+        && defensiveBallRef.x < (goalieMode == "guard" ? guardExitBallX : guardEnterBallX);
     bool shouldIntercept =
         iKnowBallPos
         && ballWillBreach
-        && brain->data->ball.posToField.x < interceptEnableBallX
+        && defensiveBallRef.x < interceptEnableBallX
         && interceptLeadSecs < interceptLeadSecsThreshold;
 
     if (shouldIntercept || shouldGuard) goalieMode = "guard";
@@ -923,7 +925,7 @@ NodeStatus GoalieDecideV2::tick()
     brain->log->logToScreen(
         "tree/GoalieDecideV2",
         format(
-            "Decision: %s mode: %s ballrange: %.2f ballyaw: %.2f kickDir: %.2f rbDir: %.2f angleIsGood: %d guard: %d willBreach: %d interceptLead: %.2f",
+            "Decision: %s mode: %s ballrange: %.2f ballyaw: %.2f kickDir: %.2f rbDir: %.2f angleIsGood: %d guard: %d willBreach: %d interceptLead: %.2f ref=(%.2f, %.2f)",
             newDecision.c_str(),
             goalieMode.c_str(),
             ballRange,
@@ -933,7 +935,9 @@ NodeStatus GoalieDecideV2::tick()
             angleIsGood,
             shouldGuard,
             ballWillBreach,
-            interceptLeadSecs
+            interceptLeadSecs,
+            defensiveBallRef.x,
+            defensiveBallRef.y
         ),
         color
     );
@@ -952,6 +956,9 @@ NodeStatus Assist::tick() {
     double distToGoalline = getInput<double>("dist_to_goalline").value();
 
     auto ballPos = brain->data->ball.posToField;
+    const Point defensiveBallRef = support_position_planner::calcDefensiveBallReference(brain, ballPos, 0.8, true);
+    const bool useDefensiveBallRef = brain->data->ballWillBreach || ballPos.x < 0.0 || defensiveBallRef.x < -0.6;
+    const Point &supportBallRef = useDefensiveBallRef ? defensiveBallRef : ballPos;
     auto robotPose = brain->data->robotPoseToField;
     const int rank = brain->data->tmMyCostRank;
     const int strikerId = brain->data->tmAssignedStrikerId;
@@ -981,10 +988,20 @@ NodeStatus Assist::tick() {
             rank,
             strikerId,
             robotPose,
-            ballPos,
+            supportBallRef,
             distToGoalline
         );
     }
+    log(format(
+        "rank=%d striker=%d use_def_ref=%d ref_ball=(%.2f, %.2f) target=(%.2f, %.2f)",
+        rank,
+        strikerId,
+        useDefensiveBallRef,
+        supportBallRef.x,
+        supportBallRef.y,
+        targetPose.x,
+        targetPose.y
+    ));
      
     double dist = norm(targetPose.x - robotPose.x, targetPose.y - robotPose.y);
     if ( // 认为到达了目标位置

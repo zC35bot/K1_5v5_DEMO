@@ -25,6 +25,13 @@ Pose2D calcAssistTarget(
     double distToGoalline
 );
 
+Point calcDefensiveBallReference(
+    const Brain *brain,
+    const Point &fallbackBallPosToField,
+    double lookaheadSecs = 0.6,
+    bool preferBreach = true
+);
+
 Point calcPassReceiveTarget(
     const Brain *brain,
     int receiverId,

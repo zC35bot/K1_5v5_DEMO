@@ -1243,6 +1243,7 @@ void Brain::updateBallPrediction()
 
     data->predictedBallPos = predictions;
     data->ballPosPredictTime = now;
+    data->ballPredictStepIntervalMsecs = stepIntervalMsecs;
 
     vector<rerun::Vec2D> predictionPoints;
     predictionPoints.reserve(predictions.size());

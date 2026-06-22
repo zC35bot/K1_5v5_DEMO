@@ -60,6 +60,7 @@ public:
     bool lose_ball = false;       // 视觉丢球状态, 用于 visual kick 的退出判定
     vector<array<double, 2>> predictedBallPos; // 预测的球的位置, 单位 m, 相对于球场坐标系. 第一维为 x, 第二维为 y
     rclcpp::Time ballPosPredictTime; // 上一次进行预测的球的位置的时间戳
+    double ballPredictStepIntervalMsecs = 100.0; // predictedBallPos 的采样时间间隔
     bool ballWillBreach = false; // 是否会从机器人身边穿过
     Point2D ballBreachPoint; // 如果会穿过, 穿过的时刻所在的位置
     rclcpp::Time ballBreachTime; // 预计穿过的时间点
