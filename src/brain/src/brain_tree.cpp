@@ -66,10 +66,12 @@ void BrainTree::init()
     REGISTER_BUILDER(GoToFreekickPosition)
     REGISTER_BUILDER(GoToReadyPosition)
     REGISTER_BUILDER(GoToGoalBlockingPosition)
+    REGISTER_BUILDER(GoalieGuard)
     REGISTER_BUILDER(TurnOnSpot)
     REGISTER_BUILDER(MoveToPoseOnField)
     REGISTER_BUILDER(GoBackInField)
     REGISTER_BUILDER(GoalieDecide)
+    REGISTER_BUILDER(GoalieDecideV2)
     REGISTER_BUILDER(DecideCheckBehind)
     REGISTER_BUILDER(WaveHand)
     REGISTER_BUILDER(MoveHead)
@@ -698,6 +700,243 @@ NodeStatus GoToGoalBlockingPosition::tick() {
      
 
     brain->client->setVelocity(vx, vy, vtheta, false, false, false);
+    return NodeStatus::SUCCESS;
+}
+
+NodeStatus GoalieGuard::onStart()
+{
+    _isSquatting = false;
+    _squatMode = "none";
+    return onRunning();
+}
+
+void GoalieGuard::releaseSquat()
+{
+    if (!_isSquatting) return;
+    brain->client->squatUp();
+    _isSquatting = false;
+    _squatMode = "none";
+}
+
+NodeStatus GoalieGuard::onRunning()
+{
+    const auto fd = brain->config->fieldDimensions;
+    const auto ballPos = brain->data->ball.posToField;
+    const auto robotPose = brain->data->robotPoseToField;
+
+    double distTolerance = getInput<double>("dist_tolerance").value();
+    double thetaTolerance = getInput<double>("theta_tolerance").value();
+    double distToGoalline = getInput<double>("dist_to_goalline").value();
+    double vxLimit = getInput<double>("vx_limit").value();
+    double vyLimit = getInput<double>("vy_limit").value();
+
+    double squatEnableBallX;
+    double squatDisableBallX;
+    double squatEnableBallSpeedX;
+    double squatBallYMargin;
+    double squatRecoverPoseDist;
+    brain->get_parameter("strategy.goalie_guard_squat_enable_ball_x", squatEnableBallX);
+    brain->get_parameter("strategy.goalie_guard_squat_disable_ball_x", squatDisableBallX);
+    brain->get_parameter("strategy.goalie_guard_squat_enable_ball_speed_x", squatEnableBallSpeedX);
+    brain->get_parameter("strategy.goalie_guard_squat_ball_y_margin", squatBallYMargin);
+    brain->get_parameter("strategy.goalie_guard_squat_recover_pose_dist", squatRecoverPoseDist);
+
+    Pose2D targetPose;
+    targetPose.x = -fd.length / 2.0 + distToGoalline;
+    if (ballPos.x + fd.length / 2.0 < distToGoalline) {
+        targetPose.y = ballPos.y > 0 ? fd.goalWidth / 4.0 : -fd.goalWidth / 4.0;
+    } else {
+        targetPose.y = ballPos.y * distToGoalline / max(0.2, ballPos.x + fd.length / 2.0);
+        targetPose.y = cap(targetPose.y, fd.goalWidth / 2.0 - 0.2, -fd.goalWidth / 2.0 + 0.2);
+    }
+
+    const double dx = targetPose.x - robotPose.x;
+    const double dy = targetPose.y - robotPose.y;
+    const double dist = norm(dx, dy);
+    const double targetYaw = atan2(ballPos.y - robotPose.y, ballPos.x - robotPose.x);
+    const double deltaTheta = toPInPI(targetYaw - robotPose.theta);
+    const bool atBlockingPose = dist < distTolerance && fabs(deltaTheta) < thetaTolerance;
+
+    double ballVelX = 0.0;
+    double ballVelY = 0.0;
+    if (brain->data->predictedBallPos.size() >= 2) {
+        const auto &p0 = brain->data->predictedBallPos[0];
+        const auto &p1 = brain->data->predictedBallPos[1];
+        double stepIntervalMsec = 100.0;
+        brain->get_parameter("ball_predictor.step_interval", stepIntervalMsec);
+        const double dt = max(1e-3, stepIntervalMsec / 1000.0);
+        ballVelX = (p1[0] - p0[0]) / dt;
+        ballVelY = (p1[1] - p0[1]) / dt;
+    }
+
+    const bool ballMovingToOwnGoal = ballVelX < -fabs(squatEnableBallSpeedX);
+    const bool ballInsideGoalWindow = fabs(ballPos.y) < fd.goalWidth / 2.0 + squatBallYMargin;
+    const bool ballNearGoalMouth = ballPos.x < squatEnableBallX;
+    const bool shouldSquat = atBlockingPose && ballNearGoalMouth && ballMovingToOwnGoal && ballInsideGoalWindow;
+
+    if (shouldSquat) {
+        const double ballRelY = ballPos.y - robotPose.y;
+        string squatMode = "center";
+        if (ballRelY > 0.15) squatMode = "left";
+        else if (ballRelY < -0.15) squatMode = "right";
+
+        if (!_isSquatting || squatMode != _squatMode) {
+            if (squatMode == "center") brain->client->goalieSquatDown(true);
+            else brain->client->squatBlock(squatMode);
+            _isSquatting = true;
+            _squatMode = squatMode;
+        }
+        brain->client->setVelocity(0, 0, 0);
+        return NodeStatus::RUNNING;
+    }
+
+    const bool shouldKeepSquat =
+        _isSquatting
+        && ballPos.x < squatDisableBallX
+        && ballInsideGoalWindow
+        && dist < squatRecoverPoseDist;
+    if (!shouldKeepSquat) {
+        releaseSquat();
+    }
+
+    auto targetPose_r = brain->data->field2robot(targetPose);
+    double vx = cap(targetPose_r.x, vxLimit, -vxLimit);
+    double vy = cap(targetPose_r.y, vyLimit, -vyLimit);
+    double vtheta = cap(deltaTheta * 2.0, 1.5, -1.5);
+
+    if (atBlockingPose) {
+        vx = 0.0;
+        vy = 0.0;
+        if (fabs(deltaTheta) < thetaTolerance) {
+            vtheta = 0.0;
+        }
+    }
+
+    brain->client->setVelocity(vx, vy, vtheta, false, false, false);
+    return NodeStatus::RUNNING;
+}
+
+void GoalieGuard::onHalted()
+{
+    releaseSquat();
+}
+
+NodeStatus GoalieDecideV2::tick()
+{
+    double chaseRangeThreshold;
+    getInput("chase_threshold", chaseRangeThreshold);
+    string lastDecision;
+    getInput("decision_in", lastDecision);
+
+    double kickDir = atan2(brain->data->ball.posToField.y, brain->data->ball.posToField.x + brain->config->fieldDimensions.length / 2);
+    double dir_rb_f = brain->data->robotBallAngleToField;
+    bool angleIsGood = (dir_rb_f > -M_PI / 2 && dir_rb_f < M_PI / 2);
+    double ballRange = brain->data->ball.range;
+    double ballYaw = brain->data->ball.yawToRobot;
+
+    bool enableAutoVisualKick;
+    brain->get_parameter("strategy.enable_auto_visual_defend", enableAutoVisualKick);
+
+    double autoVisualKickEnableDistMin = 0.5;
+    double autoVisualKickEnableDistMax = 2.0;
+    double autoVisualKickEnableAngle = 0.5;
+    double autoVisualKickObstacleDistThreshold = 1.0;
+    double autoVisualKickObstacleAngleThreshold = 0.5;
+
+    string newDecision;
+    auto color = 0xFFFFFFFF;
+    bool iKnowBallPos = brain->tree->getEntry<bool>("ball_location_known");
+    bool tmBallPosReliable = brain->tree->getEntry<bool>("tm_ball_pos_reliable");
+    bool ballWillBreach = brain->tree->getEntry<bool>("ball_will_breach");
+    string goalieMode = brain->tree->getEntry<string>("goalie_mode");
+    double interceptLeadSecs = max(0.0, (brain->data->ballInterceptTime - brain->get_clock()->now()).seconds());
+
+    double guardEnterBallX;
+    double guardExitBallX;
+    double interceptEnableBallX;
+    double interceptLeadSecsThreshold;
+    brain->get_parameter("strategy.goalie_guard_enter_ball_x", guardEnterBallX);
+    brain->get_parameter("strategy.goalie_guard_exit_ball_x", guardExitBallX);
+    brain->get_parameter("strategy.goalie_intercept_enable_ball_x", interceptEnableBallX);
+    brain->get_parameter("strategy.goalie_intercept_lead_secs", interceptLeadSecsThreshold);
+
+    bool shouldGuard =
+        (iKnowBallPos || tmBallPosReliable)
+        && brain->data->ball.posToField.x < (goalieMode == "guard" ? guardExitBallX : guardEnterBallX);
+    bool shouldIntercept =
+        iKnowBallPos
+        && ballWillBreach
+        && brain->data->ball.posToField.x < interceptEnableBallX
+        && interceptLeadSecs < interceptLeadSecsThreshold;
+
+    if (shouldIntercept || shouldGuard) goalieMode = "guard";
+    else goalieMode = "attack";
+    brain->tree->setEntry<string>("goalie_mode", goalieMode);
+
+    if (!(iKnowBallPos || tmBallPosReliable))
+    {
+        newDecision = "find";
+        color = 0x0000FFFF;
+    }
+    else if (shouldIntercept)
+    {
+        newDecision = "intercept";
+        color = 0xFF6600FF;
+    }
+    else if (shouldGuard)
+    {
+        newDecision = "retreat";
+        color = 0xFFCC00FF;
+    }
+    else if (brain->data->ball.posToField.x > 0 - static_cast<double>(lastDecision == "retreat"))
+    {
+        newDecision = "retreat";
+        color = 0xFF00FFFF;
+    }
+    else if (
+        enableAutoVisualKick &&
+        brain->data->ball.range < autoVisualKickEnableDistMax &&
+        brain->data->ball.range > autoVisualKickEnableDistMin &&
+        fabs(brain->data->ball.yawToRobot) < autoVisualKickEnableAngle / 2 &&
+        brain->isFrontRangeClear(-autoVisualKickObstacleAngleThreshold / 2, autoVisualKickObstacleAngleThreshold / 2, autoVisualKickObstacleDistThreshold, 0.035)
+    ) {
+        newDecision = "chase";
+        color = 0xFF00FFFF;
+    }
+    else if (ballRange > chaseRangeThreshold * (lastDecision == "chase" ? 0.9 : 1.0))
+    {
+        newDecision = "chase";
+        color = 0x00FF00FF;
+    }
+    else if (angleIsGood)
+    {
+        newDecision = "kick";
+        color = 0xFF0000FF;
+    }
+    else
+    {
+        newDecision = "adjust";
+        color = 0x00FFFFFF;
+    }
+
+    setOutput("decision_out", newDecision);
+    brain->log->logToScreen(
+        "tree/GoalieDecideV2",
+        format(
+            "Decision: %s mode: %s ballrange: %.2f ballyaw: %.2f kickDir: %.2f rbDir: %.2f angleIsGood: %d guard: %d willBreach: %d interceptLead: %.2f",
+            newDecision.c_str(),
+            goalieMode.c_str(),
+            ballRange,
+            ballYaw,
+            kickDir,
+            dir_rb_f,
+            angleIsGood,
+            shouldGuard,
+            ballWillBreach,
+            interceptLeadSecs
+        ),
+        color
+    );
     return NodeStatus::SUCCESS;
 }
 

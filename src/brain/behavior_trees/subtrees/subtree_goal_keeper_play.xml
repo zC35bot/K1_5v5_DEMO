@@ -31,12 +31,12 @@
                   <Sequence _while="goalie_mode=='attack'">
                      <!-- <CamTrackBall /> -->
                      <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
-                     <GoalieDecide decision_out="{decision}" decision_in="{decision}" chase_threshold="1.0" />
+                     <GoalieDecideV2 decision_out="{decision}" decision_in="{decision}" chase_threshold="1.0" />
                      <GoToGoalBlockingPosition _while="decision=='find'" theta_tolerance="0.2" />
                      <!-- <SubTree ID="FindBall" _while="decision=='find'" _autoremap="true" /> -->
 
                      <Intercept _while="decision == 'intercept'" squat_dist="0.9" stand_block_dist="0.2" />
-                     <GoToGoalBlockingPosition _while="decision == 'retreat'" theta_tolerance="0.2" />
+                     <GoToGoalBlockingPosition _while="decision == 'retreat'" theta_tolerance="0.2" dist_to_goalline="0.4" />
                      <!-- <Chase   _while="decision == 'chase'"  vx_limit="1.5"  vy_limit="0.4"  vtheta_limit="1.0"  dist="0.8"/> -->
                      <Chase   _while="decision == 'chase'"  vx_limit="1.5"  vy_limit="0.3"  vtheta_limit="1.0"  dist="0.4" safe_dist="0.6" />
                      <Adjust  _while="decision == 'adjust'" turn_threshold="0.2" range="0.3" vx_limit="0.3" vy_limit="0.2" vtheta_limit="1.0"  />
@@ -50,7 +50,11 @@
                   <ReactiveSequence _while="goalie_mode == 'guard'">
                      <SubTree ID="CamFindAndTrackBall" _autoremap="true" />
                      <GoToReadyPosition _while="!ball_location_known" vx_limit="0.7" />
-                     <GoToGoalBlockingPosition _while="ball_location_known" theta_tolerance="0.2" />
+                     <Sequence _while="ball_location_known">
+                        <GoalieDecideV2 decision_out="{decision}" decision_in="{decision}" chase_threshold="1.0" />
+                        <Intercept _while="decision == 'intercept'" squat_dist="0.9" stand_block_dist="0.2" />
+                        <GoalieGuard _while="decision != 'intercept'" theta_tolerance="0.2" dist_tolerance="0.2" dist_to_goalline="0.4" vx_limit="0.5" vy_limit="0.6" />
+                     </Sequence>
                   </ReactiveSequence>
 
                </Sequence>

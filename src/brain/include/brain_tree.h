@@ -115,6 +115,22 @@ private:
     Brain *brain;
 };
 
+class GoalieDecideV2 : public SyncActionNode
+{
+public:
+    GoalieDecideV2(const std::string &name, const NodeConfig &config, Brain *_brain) : SyncActionNode(name, config), brain(_brain) {}
+    static BT::PortsList providedPorts() {
+        return {
+            InputPort<double>("chase_threshold", 1.0, ""),
+            InputPort<string>("decision_in", "", ""),
+            OutputPort<string>("decision_out"),
+        };
+    }
+    BT::NodeStatus tick() override;
+private:
+    Brain *brain;
+};
+
 class CamTrackBall : public SyncActionNode
 {
 public:
@@ -614,6 +630,29 @@ public:
     BT::NodeStatus tick() override;
 private:
     Brain *brain;
+};
+
+class GoalieGuard : public StatefulActionNode
+{
+public:
+    GoalieGuard(const std::string &name, const NodeConfig &config, Brain *_brain) : StatefulActionNode(name, config), brain(_brain) {}
+    static BT::PortsList providedPorts() {
+        return {
+            InputPort<double>("dist_tolerance", 0.2, ""),
+            InputPort<double>("theta_tolerance", 0.2, ""),
+            InputPort<double>("vx_limit", 0.6, ""),
+            InputPort<double>("vy_limit", 0.6, ""),
+            InputPort<double>("dist_to_goalline", 0.4, ""),
+        };
+    }
+    NodeStatus onStart() override;
+    NodeStatus onRunning() override;
+    void onHalted() override;
+private:
+    Brain *brain;
+    bool _isSquatting = false;
+    string _squatMode = "none";
+    void releaseSquat();
 };
 
 class Assist : public SyncActionNode

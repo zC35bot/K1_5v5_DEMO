@@ -51,6 +51,15 @@ brain_node:
       squat_block_msecs: 2000.0 
       use_move_block: false 
       move_block_msecs: 2000.0 
+      goalie_guard_enter_ball_x: 0.0
+      goalie_guard_exit_ball_x: 0.3
+      goalie_intercept_enable_ball_x: -1.0
+      goalie_intercept_lead_secs: 3.0
+      goalie_guard_squat_enable_ball_x: -3.2
+      goalie_guard_squat_disable_ball_x: -2.6
+      goalie_guard_squat_enable_ball_speed_x: 0.2
+      goalie_guard_squat_ball_y_margin: 0.25
+      goalie_guard_squat_recover_pose_dist: 0.35
       shoot:
         threat_threshold: -2.0 
         xmin: 0.3

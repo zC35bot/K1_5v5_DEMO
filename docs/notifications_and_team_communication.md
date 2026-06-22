@@ -68,17 +68,17 @@
 | 播报文本 | 触发条件 | 代码位置 |
 |---|---|---|
 | `i become goalie` | 收到旧式守门员交接命令，且目标就是自己 | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:620) 到 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:629) |
-| `halt` | `Intercept` 节点被 halted 时 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:2024) 到 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:2032) |
-| `Entering Left` / `Entering Right` | 入场定位左右方案判定结果变化 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:2368) 到 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:2378) |
-| `Trying to stand up` | 倒地后触发站起恢复 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3796) 到 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3804) |
-| `Switch to striker` / `Switch to goal_keeper` | 角色切换后新旧角色不同 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3860) 到 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3867) |
-| `Calibration started` | 自动标定开始 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3934) 到 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3935) |
+| `halt` | `Intercept` 节点被 halted 时 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:2262) 到 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:2271) |
+| `Entering Left` / `Entering Right` | 入场定位左右方案判定结果变化 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:2595) 到 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:2609) |
+| `Trying to stand up` | 倒地后触发站起恢复 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4034) 到 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4043) |
+| `Switch to striker` / `Switch to goal_keeper` | 角色切换后新旧角色不同 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4098) 到 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4105) |
+| `Calibration started` | 自动标定开始 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4173) 到 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4174) |
 | `vx factor: %.2f` | 手柄在线调 `vxFactor` | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1650) 到 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1653) |
 | `yaw offset: %.2f` | 手柄在线调 `yawOffset` | [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1660) 到 [src/brain/src/brain.cpp](../src/brain/src/brain.cpp:1663) |
 
 ### 4. 行为树里的固定文本播报
 
-`Speak` 行为树节点本身支持播报任意文本，定义在 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4113)。
+`Speak` 行为树节点本身支持播报任意文本，定义在 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4352)。
 
 当前主比赛树里实际写死的文本有：
 
@@ -99,7 +99,7 @@
   - `<sound_pack>-chase`
   - `<sound_pack>-adjust`
   - `<sound_pack>-kick`
-- 另外 `PlaySound` 行为树节点支持任意 `sound` 字符串，定义在 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4103)，示例见 [src/brain/behavior_trees/chase.xml](../src/brain/behavior_trees/chase.xml:12)、[src/brain/behavior_trees/chase.xml](../src/brain/behavior_trees/chase.xml:17)、[src/brain/behavior_trees/chase.xml](../src/brain/behavior_trees/chase.xml:18)。
+- 另外 `PlaySound` 行为树节点支持任意 `sound` 字符串，定义在 [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4342)，示例见 [src/brain/behavior_trees/chase.xml](../src/brain/behavior_trees/chase.xml:12)、[src/brain/behavior_trees/chase.xml](../src/brain/behavior_trees/chase.xml:17)、[src/brain/behavior_trees/chase.xml](../src/brain/behavior_trees/chase.xml:18)。
 
 ## 机器人之间会发送什么
 

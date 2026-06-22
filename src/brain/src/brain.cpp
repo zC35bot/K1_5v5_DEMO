@@ -65,6 +65,15 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<double>("strategy.squat_block_msecs", 2000.0);
     declare_parameter<bool>("strategy.use_move_block", true);
     declare_parameter<double>("strategy.move_block_msecs", 2000.0);
+    declare_parameter<double>("strategy.goalie_guard_enter_ball_x", 0.0);
+    declare_parameter<double>("strategy.goalie_guard_exit_ball_x", 0.3);
+    declare_parameter<double>("strategy.goalie_intercept_enable_ball_x", -1.0);
+    declare_parameter<double>("strategy.goalie_intercept_lead_secs", 3.0);
+    declare_parameter<double>("strategy.goalie_guard_squat_enable_ball_x", -3.2);
+    declare_parameter<double>("strategy.goalie_guard_squat_disable_ball_x", -2.6);
+    declare_parameter<double>("strategy.goalie_guard_squat_enable_ball_speed_x", 0.2);
+    declare_parameter<double>("strategy.goalie_guard_squat_ball_y_margin", 0.25);
+    declare_parameter<double>("strategy.goalie_guard_squat_recover_pose_dist", 0.35);
     declare_parameter<bool>("strategy.enable_auto_visual_kick", false);
     declare_parameter<double>("strategy.auto_visual_kick_enable_dist_min", 0.2);
     declare_parameter<double>("strategy.auto_visual_kick_enable_dist_max", 4.0);

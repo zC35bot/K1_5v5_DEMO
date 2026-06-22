@@ -117,17 +117,17 @@
 
 | entity_path | 内容 | 文件位置 | 发送频率 |
 | --- | --- | --- | --- |
-| `debug/CamTrackBall` | 跟球调试文本 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:186) | 节点活跃时每 tick |
-| `image/track_ball` | 图像上的跟球辅助框 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:195) | 节点活跃时每 tick |
-| `debug/Assist` | Assist 调试文本 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:705) | 节点活跃时每 tick |
-| `field/kick_dir` | 踢球方向箭头 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:932) | 节点活跃时每 tick |
-| `debug/striker_decide` | 前锋决策调试文本 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:946) | 节点活跃时每 tick |
-| `tree/Decide` | 决策覆盖框 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1096)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1192) | 节点活跃时每 tick |
-| `tree/value_threat` | threat / kick value 覆盖框 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1107) | 节点活跃时每 tick |
-| `debug/Kick` | 踢球阶段调试文本 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1286) | 节点活跃时每 tick |
-| `debug/RLVisionKick` | 视觉踢球退出/切换原因 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1395)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1476) | 条件触发 |
-| `debug/intercept` | 守门员拦截开始日志 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1537) | `Intercept` 启动时一次 |
-| `recovery` | 跌倒恢复状态与事件 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3386)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3389)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3400)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3407)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:3416) | 按条件触发 |
+| `debug/CamTrackBall` | 跟球调试文本 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:190) | 节点活跃时每 tick |
+| `image/track_ball` | 图像上的跟球辅助框 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:199) | 节点活跃时每 tick |
+| `debug/Assist` | Assist 调试文本 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:946) | 节点活跃时每 tick |
+| `field/kick_dir` | 踢球方向箭头 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1243) | 节点活跃时每 tick |
+| `debug/striker_decide` | 前锋决策调试文本 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1257) | 节点活跃时每 tick |
+| `tree/Decide` | 决策覆盖框 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1735)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1835) | 节点活跃时每 tick |
+| `tree/value_threat` | threat / kick value 覆盖框 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1750) | 节点活跃时每 tick |
+| `debug/Kick` | 踢球阶段调试文本 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:1929) | 节点活跃时每 tick |
+| `debug/RLVisionKick` | 视觉踢球退出/切换原因 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:2038)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:2119) | 条件触发 |
+| `debug/intercept` | 守门员拦截开始日志 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:2180) | `Intercept` 启动时一次 |
+| `recovery` | 跌倒恢复状态与事件 | [src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4029)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4032)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4043)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4050)、[src/brain/src/brain_tree.cpp](../src/brain/src/brain_tree.cpp:4059) | 按条件触发 |
 
 ## 当前有代码但默认不发
 
