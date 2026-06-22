@@ -83,8 +83,8 @@ public:
     NodeStatus tick() override;
 private:
     Brain *brain;
-    double lastDeltaDir; 
-    rclcpp::Time timeLastTick; 
+    double lastDeltaDir = 0.0;
+    rclcpp::Time timeLastTick = rclcpp::Time(0, 0, RCL_ROS_TIME);
 };
 
 class NewDecide : public SyncActionNode

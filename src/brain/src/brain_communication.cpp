@@ -375,7 +375,17 @@ void BrainCommunication::unicastCommunication() {
         msg.captainDecisionId = brain->data->tmCaptainDecisionId;
         msg.cmdId = brain->data->tmMyCmdId;
         msg.cmd = brain->data->tmMyCmd;
-        log(format("ImAlive: %d, fallen: %d, ImLead: %d, myCost: %.1f, myState: %s, teamRole: %s, captain[%d] S=%d P=%d, myCmdId: %d, myCmd: %d",
+        msg.passInitiator = brain->data->tmMyPassInitiator;
+        msg.passState = brain->data->tmMyPassState;
+        msg.passPartnerPlayerId = brain->data->tmMyPassPartnerPlayerId;
+        msg.passSequenceId = brain->data->tmMyPassSequenceId;
+        msg.passReceiveReady = brain->data->tmMyPassReceiveReady;
+        msg.passTakeoverAck = brain->data->tmMyPassTakeoverAck;
+        msg.passOneTwoIntent = brain->data->tmMyPassOneTwoIntent;
+        msg.passTargetPosToField = brain->data->tmMyPassTargetPosToField;
+        msg.oneTwoState = brain->data->tmMyOneTwoState;
+        msg.oneTwoReturnTargetPosToField = brain->data->tmMyOneTwoReturnTargetPosToField;
+        log(format("ImAlive: %d, fallen: %d, ImLead: %d, myCost: %.1f, myState: %s, teamRole: %s, captain[%d] S=%d P=%d, myCmdId: %d, myCmd: %d, pass[%s seq=%d partner=%d ready=%d ack=%d oneTwo=%d/%s]",
             msg.isAlive,
             msg.isFallen,
             msg.isLead,
@@ -386,7 +396,14 @@ void BrainCommunication::unicastCommunication() {
             msg.assignedStrikerId,
             msg.assignedSupporterId,
             msg.cmdId,
-            msg.cmd));
+            msg.cmd,
+            passStateCodeName(msg.passState).c_str(),
+            msg.passSequenceId,
+            msg.passPartnerPlayerId,
+            msg.passReceiveReady,
+            msg.passTakeoverAck,
+            msg.passOneTwoIntent,
+            oneTwoStateCodeName(msg.oneTwoState).c_str()));
 
         std::lock_guard<std::mutex> lock(_teammate_addresses_mutex);
         for (auto it = _teammate_addresses.begin(); it != _teammate_addresses.end(); ++it) {
@@ -530,7 +547,7 @@ void BrainCommunication::spinCommunicationReceiver() {
             continue;
         }
 
-        log(format("TMID: %.d, alive: %d, fallen: %d, lead: %d, cost: %.1f, state: %s, teamRole: %s, captain[%d] S=%d P=%d, CmdId: %d, Cmd: %d",
+        log(format("TMID: %.d, alive: %d, fallen: %d, lead: %d, cost: %.1f, state: %s, teamRole: %s, captain[%d] S=%d P=%d, CmdId: %d, Cmd: %d, pass[%s seq=%d partner=%d ready=%d ack=%d oneTwo=%d/%s]",
             msg.playerId,
             msg.isAlive,
             msg.isFallen,
@@ -542,7 +559,14 @@ void BrainCommunication::spinCommunicationReceiver() {
             msg.assignedStrikerId,
             msg.assignedSupporterId,
             msg.cmdId,
-            msg.cmd));
+            msg.cmd,
+            passStateCodeName(msg.passState).c_str(),
+            msg.passSequenceId,
+            msg.passPartnerPlayerId,
+            msg.passReceiveReady,
+            msg.passTakeoverAck,
+            msg.passOneTwoIntent,
+            oneTwoStateCodeName(msg.oneTwoState).c_str()));
 
         TMStatus &tmStatus = brain->data->tmStatus[tmIdx];
         
@@ -567,6 +591,16 @@ void BrainCommunication::spinCommunicationReceiver() {
         tmStatus.assignedStrikerId = msg.assignedStrikerId;
         tmStatus.assignedSupporterId = msg.assignedSupporterId;
         tmStatus.captainDecisionId = msg.captainDecisionId;
+        tmStatus.passInitiator = msg.passInitiator;
+        tmStatus.passState = msg.passState;
+        tmStatus.passPartnerPlayerId = msg.passPartnerPlayerId;
+        tmStatus.passSequenceId = msg.passSequenceId;
+        tmStatus.passReceiveReady = msg.passReceiveReady;
+        tmStatus.passTakeoverAck = msg.passTakeoverAck;
+        tmStatus.passOneTwoIntent = msg.passOneTwoIntent;
+        tmStatus.passTargetPosToField = msg.passTargetPosToField;
+        tmStatus.oneTwoState = msg.oneTwoState;
+        tmStatus.oneTwoReturnTargetPosToField = msg.oneTwoReturnTargetPosToField;
 
         // 检查是否收到了新的指令
         if (msg.cmdId > brain->data->tmCmdId) {

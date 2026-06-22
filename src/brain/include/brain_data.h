@@ -148,6 +148,20 @@ public:
     int tmMyTeamRole = TEAM_ROLE_UNKNOWN; // 当前我被分配的战术角色
     bool tmImInVisualKick = false; // 自己是否处于 visual kick 模式
     bool shouldExitRLVisionKick = false; // 是否需要主动退出 visual kick 模式
+    bool tmMyPassInitiator = false; // 我是否是当前传球/二过一发起者
+    int tmMyPassState = PASS_STATE_IDLE; // 我的常规传球状态机
+    int tmMyPassPartnerPlayerId = 0; // 我当前配合的对端球员 id
+    int tmMyPassSequenceId = 0; // 我当前传球序列号
+    bool tmMyPassReceiveReady = false; // 我是否已到位准备接球
+    bool tmMyPassTakeoverAck = false; // 我是否已接管控球
+    bool tmMyPassOneTwoIntent = false; // 我当前是否带二过一意图
+    Point tmMyPassTargetPosToField; // 我当前广播的传球目标点
+    int tmMyOneTwoState = ONE_TWO_STATE_IDLE; // 我的二过一状态机
+    Point tmMyOneTwoReturnTargetPosToField; // 二过一回做目标点
+    Pose2D oneTwoGoPose; // 二过一发起后的前插目标
+    rclcpp::Time tmMyPassStateStartTime; // 传球状态切换时间
+    rclcpp::Time tmMyOneTwoStateStartTime; // 二过一状态切换时间
+    int tmMyPassSequenceCounter = 0; // 本地递增的传球序列计数器
 
     // 通讯相关
     int discoveryMsgId = 0;

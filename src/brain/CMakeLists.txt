@@ -45,6 +45,8 @@ set(BRAIN_LOCATOR_SOURCES
 
 set(BRAIN_DECISION_SOURCES
   src/brain_tree.cpp
+  src/role_manager.cpp
+  src/support_position_planner.cpp
 )
 
 set(BRAIN_NODE_SOURCES

@@ -47,16 +47,16 @@ struct Pose2D
 // Point, 记录一个三维点
 struct Point
 {
-    double x;
-    double y;
-    double z;
+    double x = 0;
+    double y = 0;
+    double z = 0;
 };
 
 // Point2D, 记录一个二维点
 struct Point2D
 {
-    double x;
-    double y;
+    double x = 0;
+    double y = 0;
 };
 
 // BoundingBox
@@ -206,6 +206,7 @@ enum RobotStateCode {
     ROBOT_STATE_ASSIST = 14,
     ROBOT_STATE_RETREAT = 15,
     ROBOT_STATE_INTERCEPT = 16,
+    ROBOT_STATE_ONE_TWO_GO = 17,
 };
 
 inline string robotStateCodeName(int code) {
@@ -226,6 +227,7 @@ inline string robotStateCodeName(int code) {
     case ROBOT_STATE_ASSIST: return "assist";
     case ROBOT_STATE_RETREAT: return "retreat";
     case ROBOT_STATE_INTERCEPT: return "intercept";
+    case ROBOT_STATE_ONE_TWO_GO: return "one_two_go";
     default: return "unknown";
     }
 }
@@ -243,6 +245,44 @@ inline string teamRoleCodeName(int code) {
     case TEAM_ROLE_STRIKER: return "striker";
     case TEAM_ROLE_SUPPORTER: return "supporter";
     default: return "unknown";
+    }
+}
+
+enum PassStateCode {
+    PASS_STATE_IDLE = 0,
+    PASS_STATE_EVALUATE_PASS = 1,
+    PASS_STATE_PASSING = 2,
+    PASS_STATE_WAIT_RECEIVE_SWITCH = 3,
+    PASS_STATE_EXIT = 4,
+};
+
+inline string passStateCodeName(int code) {
+    switch (code) {
+    case PASS_STATE_EVALUATE_PASS: return "evaluate";
+    case PASS_STATE_PASSING: return "passing";
+    case PASS_STATE_WAIT_RECEIVE_SWITCH: return "wait_receive_switch";
+    case PASS_STATE_EXIT: return "exit";
+    default: return "idle";
+    }
+}
+
+enum OneTwoStateCode {
+    ONE_TWO_STATE_IDLE = 0,
+    ONE_TWO_STATE_ARMED = 1,
+    ONE_TWO_STATE_PASS_AND_GO = 2,
+    ONE_TWO_STATE_ONE_TOUCH_RETURN = 3,
+    ONE_TWO_STATE_WAIT_REACQUIRE = 4,
+    ONE_TWO_STATE_TIMEOUT_EXIT = 5,
+};
+
+inline string oneTwoStateCodeName(int code) {
+    switch (code) {
+    case ONE_TWO_STATE_ARMED: return "armed";
+    case ONE_TWO_STATE_PASS_AND_GO: return "pass_and_go";
+    case ONE_TWO_STATE_ONE_TOUCH_RETURN: return "one_touch_return";
+    case ONE_TWO_STATE_WAIT_REACQUIRE: return "wait_reacquire";
+    case ONE_TWO_STATE_TIMEOUT_EXIT: return "timeout_exit";
+    default: return "idle";
     }
 }
 
@@ -268,6 +308,16 @@ struct TMStatus {
     int assignedStrikerId = 0; // 守门员当前判定的主攻球员 id
     int assignedSupporterId = 0; // 守门员当前判定的辅助球员 id
     int captainDecisionId = 0; // 守门员角色分配决策序号
+    bool passInitiator = false; // 是否是这次常规传球/二过一的发起者
+    int passState = PASS_STATE_IDLE; // 常规传球状态机
+    int passPartnerPlayerId = 0; // 本次配合的对端球员 id
+    int passSequenceId = 0; // 本次配合序列号
+    bool passReceiveReady = false; // 接球队员是否已到位
+    bool passTakeoverAck = false; // 接球队员是否已接管
+    bool passOneTwoIntent = false; // 是否带有二过一意图
+    Point passTargetPosToField; // 传球落点 / 接球点
+    int oneTwoState = ONE_TWO_STATE_IDLE; // 二过一状态机
+    Point oneTwoReturnTargetPosToField; // 二过一回做目标点
     rclcpp::Time timeLastCom; // 最后一次通讯时间
 };
 

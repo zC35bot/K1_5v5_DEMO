@@ -30,6 +30,16 @@ struct TeamCommunicationMsg
     int captainDecisionId = 0; // 守门员角色分配决策序号
     int cmdId; // 每个 player 发布时, 需要将 cmdId + 1. 用来代表发布的顺序. 
     int cmd; // 百位为 1 时, 代表自己要球控球. 十位为 1 时, 代表守门员要求另一个球员接替守门员角色, 此时个位数字代表接替球员的 playerId. 例如: 100, 代表自己要球控球, 另一个 striker 进入辅助角色; 011, 代表守门员要出击, 要求 1 号球员接替守门.  
+    bool passInitiator = false; // 是否是这次常规传球/二过一的发起者
+    int passState = PASS_STATE_IDLE; // 常规传球状态机
+    int passPartnerPlayerId = 0; // 本次配合的对端球员 id
+    int passSequenceId = 0; // 本次配合序列号
+    bool passReceiveReady = false; // 接球队员是否已到位
+    bool passTakeoverAck = false; // 接球队员是否已接管控球
+    bool passOneTwoIntent = false; // 是否带有二过一意图
+    Point passTargetPosToField; // 传球落点 / 接球点
+    int oneTwoState = ONE_TWO_STATE_IDLE; // 二过一状态机
+    Point oneTwoReturnTargetPosToField; // 二过一回做目标点
 };
 
 struct TeamDiscoveryMsg

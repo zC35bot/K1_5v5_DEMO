@@ -5,6 +5,7 @@
 #include <yaml-cpp/yaml.h>  // 娣诲姞杩欎竴琛?
 
 #include "brain.h"
+#include "role_manager.h"
 #include "utils/print.h"
 #include "utils/math.h"
 #include "utils/misc.h"
@@ -466,39 +467,6 @@ void Brain::handleCooperation() {
                 reason.c_str()));
         }
     };
-    auto calcCaptainBallCost = [&](int playerId, bool isSelf) {
-        const double lostBallPenalty = 100.0;
-        const double fallenPenalty = 1000.0;
-        const double notAlivePenalty = 5000.0;
-        if (playerId <= 0) return 1e9;
-
-        if (isSelf) {
-            if (!data->tmImAlive) return notAlivePenalty;
-            if (data->recoveryState == RobotRecoveryState::HAS_FALLEN) return fallenPenalty;
-            if (!tree->getEntry<bool>("ball_location_known")) return lostBallPenalty + data->tmMyCost;
-            return data->tmMyCost;
-        }
-
-        int idx = playerId - 1;
-        if (idx < 0 || idx >= HL_MAX_NUM_PLAYERS) return 1e9;
-        auto status = data->tmStatus[idx];
-        if (!status.isAlive) return notAlivePenalty;
-        if (status.isFallen) return fallenPenalty;
-        if (status.robotState == ROBOT_STATE_FIND_BALL || !status.ballLocationKnown) return lostBallPenalty + status.cost;
-        return status.cost;
-    };
-    auto collectFrontfieldIds = [&](const vector<int> &aliveIdxs, const string &selfRole) {
-        vector<int> ids;
-        if (selfRole != "goal_keeper" && data->tmImAlive) ids.push_back(selfId);
-        for (int idx : aliveIdxs) {
-            auto tmStatus = data->tmStatus[idx];
-            if (tmStatus.role == "goal_keeper") continue;
-            ids.push_back(idx + 1);
-        }
-        sort(ids.begin(), ids.end());
-        ids.erase(unique(ids.begin(), ids.end()), ids.end());
-        return ids;
-    };
     auto setMyTacticalRole = [&](int teamRole, bool isLead, const string &reason) {
         data->tmMyTeamRole = teamRole;
         data->tmImLead = isLead;
@@ -697,9 +665,9 @@ void Brain::handleCooperation() {
     double BALL_CONTROL_COST_THRESHOLD = 3.0;
     get_parameter("strategy.cooperation.ball_control_cost_threshold", BALL_CONTROL_COST_THRESHOLD);
 
-    vector<int> frontfieldIds = collectFrontfieldIds(aliveTmIdxs, playerRole);
+    vector<int> frontfieldIds = role_manager::collectFrontfieldIds(this, aliveTmIdxs, playerRole);
     auto isFrontfieldId = [&](int playerId) {
-        return find(frontfieldIds.begin(), frontfieldIds.end(), playerId) != frontfieldIds.end();
+        return role_manager::isFrontfieldId(frontfieldIds, playerId);
     };
     for (int tmIdx : aliveTmIdxs) {
         auto tmStatus = data->tmStatus[tmIdx];
@@ -722,6 +690,10 @@ void Brain::handleCooperation() {
 
     int currentAssignedStriker = data->tmAssignedStrikerId;
     int currentAssignedSupporter = data->tmAssignedSupporterId;
+    role_manager::CaptainAssignment currentAssignment{
+        currentAssignedStriker,
+        currentAssignedSupporter
+    };
     bool currentStrikerStillValid = currentAssignedStriker > 0 && isFrontfieldId(currentAssignedStriker);
     bool currentSupporterStillValid =
         currentAssignedSupporter > 0
@@ -759,52 +731,13 @@ void Brain::handleCooperation() {
     }
 
     if (playerRole == "goal_keeper" && data->tmImAlive) {
-        int bestStrikerId = 0;
-        double bestStrikerCost = 1e9;
-        for (int playerId : frontfieldIds) {
-            double candidateCost = calcCaptainBallCost(playerId, playerId == selfId);
-            if (
-                candidateCost < bestStrikerCost - 1e-6
-                || (fabs(candidateCost - bestStrikerCost) < 1e-6 && playerId < bestStrikerId)
-            ) {
-                bestStrikerCost = candidateCost;
-                bestStrikerId = playerId;
-            }
-        }
-
-        int nextStrikerId = bestStrikerId;
-        if (currentStrikerStillValid && currentAssignedStriker > 0) {
-            double currentCost = calcCaptainBallCost(currentAssignedStriker, currentAssignedStriker == selfId);
-            double challengerCost = calcCaptainBallCost(bestStrikerId, bestStrikerId == selfId);
-            if (challengerCost > currentCost - CAPTAIN_STEAL_MARGIN) {
-                nextStrikerId = currentAssignedStriker;
-            }
-        }
-
-        int nextSupporterId = 0;
-        double bestSupportCost = 1e9;
-        for (int playerId : frontfieldIds) {
-            if (playerId == nextStrikerId) continue;
-            double candidateCost = calcCaptainBallCost(playerId, playerId == selfId);
-            if (
-                candidateCost < bestSupportCost - 1e-6
-                || (fabs(candidateCost - bestSupportCost) < 1e-6 && playerId < nextSupporterId)
-            ) {
-                bestSupportCost = candidateCost;
-                nextSupporterId = playerId;
-            }
-        }
-
-        if (!currentSupporterStillValid && nextSupporterId == 0 && frontfieldIds.size() >= 2) {
-            for (int playerId : frontfieldIds) {
-                if (playerId != nextStrikerId) {
-                    nextSupporterId = playerId;
-                    break;
-                }
-            }
-        }
-
-        setCaptainAssignment(nextStrikerId, nextSupporterId, "goalkeeper_referee");
+        const auto nextAssignment = role_manager::chooseCaptainAssignment(
+            this,
+            frontfieldIds,
+            currentAssignment,
+            CAPTAIN_STEAL_MARGIN
+        );
+        setCaptainAssignment(nextAssignment.strikerId, nextAssignment.supporterId, "goalkeeper_referee");
     } else if (remoteCaptainId > 0) {
         adoptCaptainAssignment(
             remoteCaptainId,
@@ -880,67 +813,6 @@ void Brain::handleCooperation() {
     ));
 
     return;
-#if 0
-
-
-
-
-    auto cmd = data->tmReceivedCmd;
-    if (cmd != 0) {
-        log_(format("received cmd %d from teammate", cmd));
-        if (cmd == 100) { // 闃熷弸瑕佹帶鐞?
-            data->tmImLead = false;
-            tree->setEntry<bool>("is_lead", false);
-            log_("teammate wants to take lead, i'll assist");
-        } else if (cmd > 10 && cmd < 20) {
-            log_("goalie wants to attack");
-            int newGoalieId = cmd - 10;
-            if (newGoalieId == selfId) {
-                log_("i become goalie");
-                tree->setEntry<string>("player_role", "goal_keeper");
-                speak("i become goalie", true);
-            } else {
-                log_(format("teammate %d becomes goalie", newGoalieId));
-            }
-        } else {
-            log_(format("unknown cmd %d from teammate", cmd));
-        }
-
-        data->tmReceivedCmd = 0;
-    }
-
-    if (playerRole != "goal_keeper" && data->tmAssignedStrikerId > 0) {
-        if (data->tmAssignedStrikerId == selfId) {
-            data->tmMyTeamRole = TEAM_ROLE_STRIKER;
-            data->tmImLead = true;
-            tree->setEntry<bool>("is_lead", true);
-        } else if (data->tmAssignedSupporterId == selfId) {
-            data->tmMyTeamRole = TEAM_ROLE_SUPPORTER;
-            data->tmImLead = false;
-            tree->setEntry<bool>("is_lead", false);
-        }
-    }
-
-    tree->setEntry<bool>("is_lead", data->tmImLead);
-
-    if (
-        (tree->getEntry<string>("gc_game_state") == "READY" || tree->getEntry<string>("gc_game_sub_state") == "GET_READY")
-        && gcAliveCount == numOfPlayers
-    ) {
-
-        tree->setEntry<string>("player_role", config->playerRole);
-        if (config->playerRole == "goal_keeper") {
-            data->tmMyTeamRole = TEAM_ROLE_GOALKEEPER;
-        } else {
-            data->tmMyTeamRole = TEAM_ROLE_STRIKER;
-        }
-        data->tmAssignedStrikerId = 0;
-        data->tmAssignedSupporterId = 0;
-        log_(format("all teammates on field. Back to initial role: %s", config->playerRole.c_str()));
-    }
-
-    return;
-#endif
 }
 
 void Brain::updateMemory()
@@ -1684,6 +1556,16 @@ int Brain::getRobotStateCode()
     if (decision == "kick" || decision == "safe_shoot") return ROBOT_STATE_KICK_BALL;
     if (decision == "cross") return ROBOT_STATE_CROSS_BALL;
     if (decision == "auto_visual_kick") return ROBOT_STATE_VISUAL_KICK;
+    if (
+        decision == "assist"
+        && data->tmMyPassInitiator
+        && data->tmMyPassOneTwoIntent
+        && (
+            data->tmMyOneTwoState == ONE_TWO_STATE_PASS_AND_GO
+            || data->tmMyOneTwoState == ONE_TWO_STATE_ONE_TOUCH_RETURN
+            || data->tmMyOneTwoState == ONE_TWO_STATE_WAIT_REACQUIRE
+        )
+    ) return ROBOT_STATE_ONE_TWO_GO;
     if (decision == "assist") return ROBOT_STATE_ASSIST;
     if (decision == "retreat") return ROBOT_STATE_RETREAT;
     if (ballKnown || tmBallPosReliable || data->ballDetected) return ROBOT_STATE_BALL_FOUND;
@@ -1693,23 +1575,24 @@ int Brain::getRobotStateCode()
 string Brain::getRobotStateText()
 {
     switch (getRobotStateCode()) {
-    case ROBOT_STATE_WAITING_START: return string(u8"绛夊緟鍚姩");
-    case ROBOT_STATE_MANUAL: return string(u8"鎵嬪姩妯″紡");
-    case ROBOT_STATE_ENTERING_FIELD: return string(u8"鍏ュ満瀹氫綅涓?);
-    case ROBOT_STATE_PENALIZED: return string(u8"缃氫笅/閲嶆柊鍏ュ満涓?);
-    case ROBOT_STATE_WAIT_OPPONENT_KICKOFF: return string(u8"绛夊緟瀵规柟寮€鐞?);
-    case ROBOT_STATE_GOALIE_GUARD: return string(u8"瀹堥棬寰呭懡涓?);
-    case ROBOT_STATE_FIND_BALL: return string(u8"姝ｅ湪鎵剧悆");
-    case ROBOT_STATE_BALL_FOUND: return string(u8"宸叉壘鍒扮悆");
-    case ROBOT_STATE_CHASE_BALL: return string(u8"姝ｅ湪杩界悆");
-    case ROBOT_STATE_ADJUST_BALL: return string(u8"宸茶拷鍒扮悆锛屾鍦ㄨ皟鏁?);
-    case ROBOT_STATE_KICK_BALL: return string(u8"宸茶拷鍒扮悆锛屾鍦ㄨ涪鐞?);
-    case ROBOT_STATE_CROSS_BALL: return string(u8"宸茶拷鍒扮悆锛屾鍦ㄤ紶鐞?);
-    case ROBOT_STATE_VISUAL_KICK: return string(u8"瑙嗚韪㈢悆涓?);
-    case ROBOT_STATE_ASSIST: return string(u8"鍗忛槻/杈呭姪涓?);
-    case ROBOT_STATE_RETREAT: return string(u8"鍥炴挙瀹堥棬涓?);
-    case ROBOT_STATE_INTERCEPT: return string(u8"瀹堥棬鎷︽埅涓?);
-    default: return string(u8"鐘舵€佹湭鐭?);
+    case ROBOT_STATE_WAITING_START: return string(u8"等待启动");
+    case ROBOT_STATE_MANUAL: return string(u8"手动模式");
+    case ROBOT_STATE_ENTERING_FIELD: return string(u8"入场定位中");
+    case ROBOT_STATE_PENALIZED: return string(u8"罚下/重新入场中");
+    case ROBOT_STATE_WAIT_OPPONENT_KICKOFF: return string(u8"等待对方开球");
+    case ROBOT_STATE_GOALIE_GUARD: return string(u8"守门待命中");
+    case ROBOT_STATE_FIND_BALL: return string(u8"正在找球");
+    case ROBOT_STATE_BALL_FOUND: return string(u8"已找到球");
+    case ROBOT_STATE_CHASE_BALL: return string(u8"正在追球");
+    case ROBOT_STATE_ADJUST_BALL: return string(u8"已追到球，正在调整");
+    case ROBOT_STATE_KICK_BALL: return string(u8"已追到球，正在踢球");
+    case ROBOT_STATE_CROSS_BALL: return string(u8"已追到球，正在传球");
+    case ROBOT_STATE_VISUAL_KICK: return string(u8"视觉踢球中");
+    case ROBOT_STATE_ONE_TWO_GO: return string(u8"二过一前插中");
+    case ROBOT_STATE_ASSIST: return string(u8"协防/辅助中");
+    case ROBOT_STATE_RETREAT: return string(u8"回撤守门中");
+    case ROBOT_STATE_INTERCEPT: return string(u8"守门拦截中");
+    default: return string(u8"状态未知");
     }
 }
 
@@ -1729,6 +1612,7 @@ string Brain::getRobotStateSpeech(int robotStateCode)
     case ROBOT_STATE_KICK_BALL: return "ball reached, kicking";
     case ROBOT_STATE_CROSS_BALL: return "ball reached, passing";
     case ROBOT_STATE_VISUAL_KICK: return "visual kick in progress";
+    case ROBOT_STATE_ONE_TWO_GO: return "one-two go in progress";
     case ROBOT_STATE_ASSIST: return "assisting";
     case ROBOT_STATE_RETREAT: return "retreating to defend goal";
     case ROBOT_STATE_INTERCEPT: return "goalkeeper intercepting";

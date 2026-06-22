@@ -3,6 +3,8 @@
 #include <memory> 
 #include "brain_tree.h"
 #include "brain.h"
+#include "role_manager.h"
+#include "support_position_planner.h"
 #include "utils/math.h"
 #include "utils/print.h"
 #include "utils/misc.h"
@@ -710,107 +712,40 @@ NodeStatus Assist::tick() {
     double thetaTolerance = getInput<double>("theta_tolerance").value();
     double distToGoalline = getInput<double>("dist_to_goalline").value();
 
-    auto fd = brain->config->fieldDimensions;
     auto ballPos = brain->data->ball.posToField;
     auto robotPose = brain->data->robotPoseToField;
-    Pose2D targetPose = {0.0, 0.0, 0.0};
-
-    const double ownGoalX = -fd.length / 2.0;
-    const double oppGoalX = fd.length / 2.0;
     const int rank = brain->data->tmMyCostRank;
-    const bool aggressiveAssist = brain->data->liveCount >= 3; // 3 人以上时，允许更积极的前插接应
-    const int selfId = brain->config->playerId;
     const int strikerId = brain->data->tmAssignedStrikerId;
-    const double supportLateralGap = aggressiveAssist ? 1.8 : 1.6;
-    const double supportForwardOffset = aggressiveAssist ? 0.2 : 0.0;
-
-    auto calcBlockLineY = [&](double targetX) {
-        const double denom = ballPos.x - ownGoalX;
-        if (fabs(denom) < 1e-6) {
-            return 0.0;
-        }
-        return ballPos.y * (targetX - ownGoalX) / denom;
-    };
-    auto getAssignedStrikerPose = [&]() {
-        Pose2D pose = robotPose;
-        bool valid = false;
-
-        if (strikerId == selfId) {
-            pose = robotPose;
-            valid = true;
-        } else if (strikerId > 0) {
-            int idx = strikerId - 1;
-            if (idx >= 0 && idx < HL_MAX_NUM_PLAYERS) {
-                const auto &tmStatus = brain->data->tmStatus[idx];
-                if (tmStatus.isAlive && !tmStatus.isFallen) {
-                    pose = tmStatus.robotPoseToField;
-                    valid = true;
-                }
-            }
-        }
-
-        return pair<Pose2D, bool>(pose, valid);
-    };
-    auto calcSupportTargetAroundStriker = [&](const Pose2D &strikerPose) {
-        Pose2D pose = strikerPose;
-        double sideBias = robotPose.y - strikerPose.y;
-        int sideSign =
-            fabs(sideBias) > 0.25
-            ? (sideBias > 0.0 ? 1 : -1)
-            : ((ballPos.y - strikerPose.y) >= 0.0 ? -1 : 1);
-        pose.x = strikerPose.x + supportForwardOffset;
-        pose.y = strikerPose.y + sideSign * supportLateralGap;
-        return pose;
-    };
-
-    auto [strikerPose, hasAssignedStrikerPose] = getAssignedStrikerPose();
-
-    // rank 0 在 Assist 状态下是异常情况（通常是只剩我自己或切换瞬间），这里退化为 rank 1 逻辑.
-    //
-    if ((rank == 0 || rank == 1) && hasAssignedStrikerPose) {
-        targetPose = calcSupportTargetAroundStriker(strikerPose);
-        log(format(
-            "support planner active: striker=%d strikerPos=(%.2f, %.2f) target=(%.2f, %.2f) rank=%d",
-            strikerId,
-            strikerPose.x,
-            strikerPose.y,
-            targetPose.x,
-            targetPose.y,
-            rank
-        ));
-    } else if (brain->data->tmMyCostRank == 0) {
-        // Bug 修复：当没有队友在线（或我是 cost 最低的）时，也需要计算防守位置
-        // 这种情况发生在：队友被罚下，但我仍然处于 Assist 状态
-        targetPose.x = ballPos.x - 2.0;
-        targetPose.x = max(targetPose.x, - fd.length / 2.0 + distToGoalline); // 不要太接近底线
-        targetPose.y = ballPos.y * (targetPose.x + fd.length / 2.0) / (ballPos.x + fd.length / 2.0); // 可以挡住球的位置
-        log("tmMyCostRank == 0, using default assist position");
-    } else if (brain->data->tmMyCostRank == 1) {
-        targetPose.x = ballPos.x - 2.0;
-        targetPose.x = max(targetPose.x, - fd.length / 2.0 + distToGoalline); // 不要太接近底线
-        targetPose.y = ballPos.y * (targetPose.x + fd.length / 2.0) / (ballPos.x + fd.length / 2.0); // 可以挡住球的位置
-    } else if (brain->data->tmMyCostRank == 2) {  //todo 之后的assist时候的tmMyCostRank不考虑守门员的cost
-        // targetPose.x = ballPos.x - 2.0;
-        // targetPose.x = max(targetPose.x, - fd.length / 2.0 + distToGoalline); // 不要太接近底线
-        // targetPose.y = ballPos.y * (targetPose.x + fd.length / 2.0) / (ballPos.x + fd.length / 2.0); // 可以挡住球的位置
-        targetPose.x = -fd.length / 2.0 + fd.penaltyAreaLength + 1;
-        if (targetPose.x > ballPos.x) targetPose.x = ballPos.x - 1.0;
-        targetPose.y = ballPos.y * (targetPose.x + fd.length / 2.0) / (ballPos.x + fd.length / 2.0); // 可以挡住球的位置
-    } else if (brain->data->tmMyCostRank == 3) {
-        targetPose.x = -fd.length / 2.0 + fd.penaltyAreaLength;
-        if (targetPose.x > ballPos.x) targetPose.x = ballPos.x - 0.5;
-        targetPose.y = ballPos.y * (targetPose.x + fd.length / 2.0) / (ballPos.x + fd.length / 2.0); // 可以挡住球的位置
+    Pose2D targetPose;
+    const bool useOneTwoGoPose =
+        brain->data->tmMyPassInitiator
+        && brain->data->tmMyPassOneTwoIntent
+        && (
+            brain->data->tmMyOneTwoState == ONE_TWO_STATE_PASS_AND_GO
+            || brain->data->tmMyOneTwoState == ONE_TWO_STATE_ONE_TOUCH_RETURN
+            || brain->data->tmMyOneTwoState == ONE_TWO_STATE_WAIT_REACQUIRE
+        );
+    const bool usePassReceivePose =
+        !brain->data->tmMyPassInitiator
+        && brain->data->tmMyPassState != PASS_STATE_IDLE
+        && brain->data->tmMyPassPartnerPlayerId > 0;
+    if (useOneTwoGoPose) {
+        targetPose = brain->data->oneTwoGoPose;
+        targetPose.theta = std::atan2(ballPos.y - targetPose.y, ballPos.x - targetPose.x);
+    } else if (usePassReceivePose) {
+        targetPose.x = brain->data->tmMyPassTargetPosToField.x;
+        targetPose.y = brain->data->tmMyPassTargetPosToField.y;
+        targetPose.theta = std::atan2(ballPos.y - targetPose.y, ballPos.x - targetPose.x);
     } else {
-        // tmMyCostRank >= 4 的情况，使用默认防守位置
-        targetPose.x = -fd.length / 2.0 + fd.penaltyDist;
-        if (targetPose.x > ballPos.x) targetPose.x = ballPos.x - 0.5;
-        targetPose.y = ballPos.y * (targetPose.x + fd.length / 2.0) / (ballPos.x + fd.length / 2.0);
-        log(format("tmMyCostRank = %d, using fallback position", brain->data->tmMyCostRank));
+        targetPose = support_position_planner::calcAssistTarget(
+            brain,
+            rank,
+            strikerId,
+            robotPose,
+            ballPos,
+            distToGoalline
+        );
     }
-
-    // 场地约束：防止辅助位冲出边界或压到对方禁区深处.
-    targetPose.x = cap(targetPose.x, oppGoalX - fd.penaltyAreaLength - 0.2, ownGoalX + distToGoalline);
-    targetPose.y = cap(targetPose.y, fd.width / 2.0 - 0.7, -fd.width / 2.0 + 0.7);
      
     double dist = norm(targetPose.x - robotPose.x, targetPose.y - robotPose.y);
     if ( // 认为到达了目标位置
@@ -919,6 +854,95 @@ NodeStatus Adjust::tick()
     brain->client->setVelocity(vx, vy, vtheta, false, true, false);
     return NodeStatus::SUCCESS;
 }
+
+namespace {
+
+void resetPassState(Brain *brain)
+{
+    brain->data->tmMyPassInitiator = false;
+    brain->data->tmMyPassState = PASS_STATE_IDLE;
+    brain->data->tmMyPassPartnerPlayerId = 0;
+    brain->data->tmMyPassSequenceId = 0;
+    brain->data->tmMyPassReceiveReady = false;
+    brain->data->tmMyPassTakeoverAck = false;
+    brain->data->tmMyPassOneTwoIntent = false;
+    brain->data->tmMyPassTargetPosToField = Point{};
+}
+
+void resetOneTwoState(Brain *brain)
+{
+    brain->data->tmMyOneTwoState = ONE_TWO_STATE_IDLE;
+    brain->data->tmMyOneTwoReturnTargetPosToField = Point{};
+    brain->data->oneTwoGoPose = Pose2D{};
+}
+
+bool canTriggerRegularPass(
+    Brain *brain,
+    int partnerId,
+    double ballRange,
+    double ballYaw,
+    double kickDir,
+    bool shootPossible,
+    bool avoidKick
+)
+{
+    if (partnerId <= 0 || partnerId == brain->config->playerId) return false;
+    if (shootPossible) return false;
+    if (!avoidKick) return false;
+    if (!brain->data->ballDetected) return false;
+    if (ballRange > 0.55 || std::fabs(ballYaw) > 0.30) return false;
+
+    Pose2D partnerPose;
+    if (!support_position_planner::getPlayerFieldPose(brain, partnerId, partnerPose)) return false;
+    const double distToPartner = norm(
+        partnerPose.x - brain->data->robotPoseToField.x,
+        partnerPose.y - brain->data->robotPoseToField.y
+    );
+    if (distToPartner < 0.8 || distToPartner > 3.5) return false;
+
+    const double desiredDir = std::atan2(
+        partnerPose.y - brain->data->ball.posToField.y,
+        partnerPose.x - brain->data->ball.posToField.x
+    );
+    return std::fabs(toPInPI(desiredDir - kickDir)) < 1.0;
+}
+
+bool canTriggerOneTwo(
+    Brain *brain,
+    int partnerId,
+    double ballRange,
+    double ballYaw,
+    const Point &ballPos
+)
+{
+    if (partnerId <= 0 || partnerId == brain->config->playerId) return false;
+    if (!brain->data->ballDetected) return false;
+    if (ballRange > 0.5 || std::fabs(ballYaw) > 0.25) return false;
+    if (ballPos.x < brain->config->fieldDimensions.length * 0.15) return false;
+    if (brain->distToObstacle(brain->data->ball.yawToRobot) >= 1.5) return false;
+
+    Pose2D partnerPose;
+    if (!support_position_planner::getPlayerFieldPose(brain, partnerId, partnerPose)) return false;
+    return partnerPose.x > ballPos.x - 0.2 && std::fabs(partnerPose.y - ballPos.y) < 2.0;
+}
+
+bool isCrossKickCommitted(
+    Brain *brain,
+    const rclcpp::Time &startTime,
+    bool ballDetected,
+    double ballRange,
+    const rclcpp::Time &ballTime
+)
+{
+    const double elapsed = brain->msecsSince(startTime);
+    if (elapsed > 2200.0) return true;
+    if (elapsed < 450.0) return false;
+    if (!ballDetected) return true;
+    if (brain->msecsSince(ballTime) > 350.0) return true;
+    return ballRange > 0.75;
+}
+
+} // namespace
 
 NodeStatus CalcKickDir::tick()
 {
@@ -1077,8 +1101,77 @@ NodeStatus StrikerDecide::tick() {
     auto color = 0xFFFFFFFF; // for log
     bool iKnowBallPos = brain->tree->getEntry<bool>("ball_location_known");
     bool tmBallPosReliable = brain->tree->getEntry<bool>("tm_ball_pos_reliable");
+    const int selfId = brain->config->playerId;
+    int assignedPartnerId =
+        brain->data->tmAssignedSupporterId > 0 && brain->data->tmAssignedSupporterId != selfId
+        ? brain->data->tmAssignedSupporterId
+        : 0;
+    if (assignedPartnerId == 0) {
+        for (int i = 0; i < HL_MAX_NUM_PLAYERS; ++i) {
+            if (i + 1 == selfId) continue;
+            const auto &status = brain->data->tmStatus[i];
+            if (!status.isAlive || status.isFallen) continue;
+            if (status.teamRole == TEAM_ROLE_SUPPORTER || status.role == "striker") {
+                assignedPartnerId = i + 1;
+                break;
+            }
+        }
+    }
+    auto setPassState = [&](int state) {
+        if (brain->data->tmMyPassState != state) {
+            brain->data->tmMyPassState = state;
+            brain->data->tmMyPassStateStartTime = brain->get_clock()->now();
+        }
+    };
+    auto setOneTwoState = [&](int state) {
+        if (brain->data->tmMyOneTwoState != state) {
+            brain->data->tmMyOneTwoState = state;
+            brain->data->tmMyOneTwoStateStartTime = brain->get_clock()->now();
+        }
+    };
+    const bool passKickReady =
+        brain->data->ballDetected
+        && ballRange < KICK_RANGE
+        && std::fabs(ballYaw) < KICK_THETA_RANGE;
+    const bool passKickCommitted = isCrossKickCommitted(
+        brain,
+        brain->data->tmMyPassStateStartTime,
+        brain->data->ballDetected,
+        ballRange,
+        brain->data->ball.timePoint
+    );
+
+    bool partnerReady = false;
+    bool partnerAck = false;
+    bool partnerStatusKnown = role_manager::getPassPartnerStatus(
+        brain,
+        assignedPartnerId,
+        selfId,
+        brain->data->tmMyPassSequenceId,
+        partnerReady,
+        partnerAck
+    );
+    const bool regularPassCandidate = canTriggerRegularPass(
+        brain,
+        assignedPartnerId,
+        ballRange,
+        ballYaw,
+        kickDir,
+        shootPossible,
+        avoidKick
+    );
+    const bool oneTwoCandidate = canTriggerOneTwo(
+        brain,
+        assignedPartnerId,
+        ballRange,
+        ballYaw,
+        ball.posToField
+    );
+
     if (!(iKnowBallPos || tmBallPosReliable))
     {
+        resetPassState(brain);
+        resetOneTwoState(brain);
         newDecision = "find";
         color = 0xFFFFFFFF;
     } else if (
@@ -1096,21 +1189,275 @@ NodeStatus StrikerDecide::tick() {
         brain->data->robotPoseToField.x > brain->config->fieldDimensions.length / 2 - 14.3 &&
         fabs(brain->data->robotPoseToField.y) < 5.0
     ) {
+        resetPassState(brain);
+        resetOneTwoState(brain);
         newDecision = "auto_visual_kick";
         brain->data->tmImInVisualKick = true;
         color = 0xFF00FFFF;
     } else if (!brain->data->tmImLead) {
-        newDecision = "assist";
+        auto passCtx = role_manager::findActivePassContext(brain);
+        if (passCtx.valid && passCtx.partnerId == selfId && passCtx.sequenceId > 0) {
+            const bool newPassContext =
+                brain->data->tmMyPassSequenceId != passCtx.sequenceId
+                || brain->data->tmMyPassPartnerPlayerId != passCtx.ownerId;
+            const bool keepLocalOneTouchReturn =
+                !newPassContext
+                && brain->data->tmMyOneTwoState == ONE_TWO_STATE_ONE_TOUCH_RETURN
+                && brain->data->tmMyPassOneTwoIntent;
+            brain->data->tmMyPassInitiator = false;
+            brain->data->tmMyPassPartnerPlayerId = passCtx.ownerId;
+            brain->data->tmMyPassSequenceId = passCtx.sequenceId;
+            brain->data->tmMyPassOneTwoIntent = passCtx.oneTwoIntent;
+            brain->data->tmMyPassTargetPosToField = passCtx.passTargetPosToField;
+            brain->data->tmMyOneTwoReturnTargetPosToField = passCtx.oneTwoReturnTargetPosToField;
+            setPassState(passCtx.passState);
+            if (passCtx.passState == PASS_STATE_EXIT || passCtx.oneTwoState == ONE_TWO_STATE_TIMEOUT_EXIT) {
+                setOneTwoState(passCtx.oneTwoState);
+                resetPassState(brain);
+                resetOneTwoState(brain);
+                newDecision = "assist";
+            } else {
+                if (!keepLocalOneTouchReturn) {
+                    setOneTwoState(passCtx.oneTwoState);
+                }
+
+                const Pose2D selfPose = brain->data->robotPoseToField;
+                const double distToTarget = norm(
+                    passCtx.passTargetPosToField.x - selfPose.x,
+                    passCtx.passTargetPosToField.y - selfPose.y
+                );
+                const bool nearIncomingBall =
+                    brain->data->ballDetected
+                    && ballRange < 0.7
+                    && std::fabs(ballYaw) < 0.8;
+                if (passCtx.passState == PASS_STATE_EVALUATE_PASS) {
+                    brain->data->tmMyPassReceiveReady = distToTarget < 0.9;
+                    brain->data->tmMyPassTakeoverAck = false;
+                    newDecision = "assist";
+                } else if (
+                    passCtx.passState == PASS_STATE_PASSING
+                    || passCtx.passState == PASS_STATE_WAIT_RECEIVE_SWITCH
+                ) {
+                    brain->data->tmMyPassReceiveReady = true;
+                    brain->data->tmMyPassTakeoverAck = nearIncomingBall;
+                    if (passCtx.oneTwoIntent && nearIncomingBall) {
+                        setOneTwoState(ONE_TWO_STATE_ONE_TOUCH_RETURN);
+                    }
+                    newDecision = nearIncomingBall ? "chase" : "assist";
+                } else {
+                    brain->data->tmMyPassReceiveReady = false;
+                    brain->data->tmMyPassTakeoverAck = false;
+                    newDecision = "assist";
+                }
+
+                if (brain->data->tmMyOneTwoState == ONE_TWO_STATE_ONE_TOUCH_RETURN) {
+                    const bool receiverOneTouchCommitted = isCrossKickCommitted(
+                        brain,
+                        brain->data->tmMyOneTwoStateStartTime,
+                        brain->data->ballDetected,
+                        ballRange,
+                        brain->data->ball.timePoint
+                    );
+                    brain->data->tmMyPassReceiveReady = true;
+                    brain->data->tmMyPassTakeoverAck = true;
+                    brain->data->kickDir = std::atan2(
+                        passCtx.oneTwoReturnTargetPosToField.y - ball.posToField.y,
+                        passCtx.oneTwoReturnTargetPosToField.x - ball.posToField.x
+                    );
+                    if (
+                        brain->msecsSince(brain->data->tmMyOneTwoStateStartTime) > 2200.0
+                        || receiverOneTouchCommitted
+                    ) {
+                        resetPassState(brain);
+                        resetOneTwoState(brain);
+                        newDecision = "assist";
+                    } else if (passKickReady) {
+                        newDecision = "cross";
+                    } else {
+                        newDecision = "adjust";
+                    }
+                }
+            }
+        } else {
+            resetPassState(brain);
+            resetOneTwoState(brain);
+            newDecision = "assist";
+        }
         color = 0x00FFFFFF;
     }
     else if (ballRange > chaseRangeThreshold * (lastDecision == "chase" ? 0.9 : 1.0))
     {
+        resetPassState(brain);
+        resetOneTwoState(brain);
         newDecision = "chase";
         color = 0x0000FFFF;
-    } 
+    }
+    else if (brain->data->tmMyPassState == PASS_STATE_EXIT || brain->data->tmMyOneTwoState == ONE_TWO_STATE_TIMEOUT_EXIT) {
+        resetPassState(brain);
+        resetOneTwoState(brain);
+        newDecision = "assist";
+        color = 0x66AAFFFF;
+    }
+    else if (oneTwoCandidate && brain->data->tmMyPassState == PASS_STATE_IDLE && brain->data->tmMyOneTwoState == ONE_TWO_STATE_IDLE) {
+        Pose2D partnerPose;
+        support_position_planner::getPlayerFieldPose(brain, assignedPartnerId, partnerPose);
+        brain->data->tmMyPassInitiator = true;
+        brain->data->tmMyPassPartnerPlayerId = assignedPartnerId;
+        brain->data->tmMyPassSequenceId = ++brain->data->tmMyPassSequenceCounter;
+        brain->data->tmMyPassOneTwoIntent = true;
+        brain->data->tmMyPassTargetPosToField = support_position_planner::calcPassReceiveTarget(
+            brain,
+            assignedPartnerId,
+            partnerPose,
+            ball.posToField,
+            0.35
+        );
+        brain->data->oneTwoGoPose = support_position_planner::calcOneTwoGoTarget(
+            brain,
+            brain->data->robotPoseToField,
+            1.0
+        );
+        brain->data->tmMyOneTwoReturnTargetPosToField = Point{
+            brain->data->oneTwoGoPose.x,
+            brain->data->oneTwoGoPose.y,
+            0.0
+        };
+        setPassState(PASS_STATE_EVALUATE_PASS);
+        setOneTwoState(ONE_TWO_STATE_ARMED);
+        brain->data->kickDir = std::atan2(
+            brain->data->tmMyPassTargetPosToField.y - ball.posToField.y,
+            brain->data->tmMyPassTargetPosToField.x - ball.posToField.x
+        );
+        newDecision = "adjust";
+        color = 0xEE8800FF;
+    }
+    else if (brain->data->tmMyOneTwoState == ONE_TWO_STATE_ARMED) {
+        brain->data->kickDir = std::atan2(
+            brain->data->tmMyPassTargetPosToField.y - ball.posToField.y,
+            brain->data->tmMyPassTargetPosToField.x - ball.posToField.x
+        );
+        if (brain->msecsSince(brain->data->tmMyOneTwoStateStartTime) > 2500.0) {
+            setOneTwoState(ONE_TWO_STATE_TIMEOUT_EXIT);
+            setPassState(PASS_STATE_EXIT);
+            newDecision = "assist";
+        } else {
+            if (partnerStatusKnown && partnerReady) {
+                setPassState(PASS_STATE_PASSING);
+            }
+            newDecision = (partnerStatusKnown && partnerReady && passKickReady) ? "cross" : "adjust";
+        }
+        color = 0xEE7700FF;
+    }
+    else if (regularPassCandidate && brain->data->tmMyPassState == PASS_STATE_IDLE && brain->data->tmMyOneTwoState == ONE_TWO_STATE_IDLE) {
+        Pose2D partnerPose;
+        support_position_planner::getPlayerFieldPose(brain, assignedPartnerId, partnerPose);
+        brain->data->tmMyPassInitiator = true;
+        brain->data->tmMyPassPartnerPlayerId = assignedPartnerId;
+        brain->data->tmMyPassSequenceId = ++brain->data->tmMyPassSequenceCounter;
+        brain->data->tmMyPassOneTwoIntent = false;
+        brain->data->tmMyPassTargetPosToField = support_position_planner::calcPassReceiveTarget(
+            brain,
+            assignedPartnerId,
+            partnerPose,
+            ball.posToField,
+            0.45
+        );
+        setPassState(PASS_STATE_EVALUATE_PASS);
+        resetOneTwoState(brain);
+        brain->data->kickDir = std::atan2(
+            brain->data->tmMyPassTargetPosToField.y - ball.posToField.y,
+            brain->data->tmMyPassTargetPosToField.x - ball.posToField.x
+        );
+        newDecision = "adjust";
+        color = 0x22DD88FF;
+    }
+    else if (brain->data->tmMyPassState == PASS_STATE_EVALUATE_PASS) {
+        brain->data->kickDir = std::atan2(
+            brain->data->tmMyPassTargetPosToField.y - ball.posToField.y,
+            brain->data->tmMyPassTargetPosToField.x - ball.posToField.x
+        );
+        if (brain->msecsSince(brain->data->tmMyPassStateStartTime) > 2500.0) {
+            setPassState(PASS_STATE_EXIT);
+            newDecision = "assist";
+        } else {
+            if (partnerStatusKnown && partnerReady) {
+                setPassState(PASS_STATE_PASSING);
+            }
+            newDecision = (partnerStatusKnown && partnerReady && passKickReady) ? "cross" : "adjust";
+        }
+        color = 0x00DD88FF;
+    }
+    else if (brain->data->tmMyPassState == PASS_STATE_PASSING) {
+        brain->data->kickDir = std::atan2(
+            brain->data->tmMyPassTargetPosToField.y - ball.posToField.y,
+            brain->data->tmMyPassTargetPosToField.x - ball.posToField.x
+        );
+        if (passKickCommitted) {
+            setPassState(PASS_STATE_WAIT_RECEIVE_SWITCH);
+            if (brain->data->tmMyPassOneTwoIntent) {
+                setOneTwoState(ONE_TWO_STATE_PASS_AND_GO);
+            }
+            newDecision = "assist";
+        } else {
+            newDecision = "cross";
+        }
+        color = 0x00CC66FF;
+    }
+    else if (brain->data->tmMyOneTwoState == ONE_TWO_STATE_PASS_AND_GO) {
+        if (brain->msecsSince(brain->data->tmMyOneTwoStateStartTime) > 3000.0) {
+            setOneTwoState(ONE_TWO_STATE_TIMEOUT_EXIT);
+            setPassState(PASS_STATE_EXIT);
+        } else if (partnerAck) {
+            setOneTwoState(ONE_TWO_STATE_ONE_TOUCH_RETURN);
+        }
+        newDecision = "assist";
+        color = 0xFFAA00FF;
+    }
+    else if (brain->data->tmMyOneTwoState == ONE_TWO_STATE_ONE_TOUCH_RETURN) {
+        bool reacquiredBall =
+            brain->data->ballDetected
+            && ballRange < 0.8
+            && std::fabs(ballYaw) < 0.8;
+        if (reacquiredBall) {
+            resetPassState(brain);
+            resetOneTwoState(brain);
+            newDecision = "chase";
+        } else {
+            if (brain->msecsSince(brain->data->tmMyOneTwoStateStartTime) > 600.0) {
+                setOneTwoState(ONE_TWO_STATE_WAIT_REACQUIRE);
+            }
+            newDecision = "assist";
+        }
+        color = 0xFF9900FF;
+    }
+    else if (brain->data->tmMyOneTwoState == ONE_TWO_STATE_WAIT_REACQUIRE) {
+        if (brain->msecsSince(brain->data->tmMyOneTwoStateStartTime) > 3200.0) {
+            setOneTwoState(ONE_TWO_STATE_TIMEOUT_EXIT);
+            setPassState(PASS_STATE_EXIT);
+        }
+        bool reacquiredBall =
+            brain->data->ballDetected
+            && ballRange < 0.8
+            && std::fabs(ballYaw) < 0.8;
+        if (reacquiredBall) {
+            resetPassState(brain);
+            resetOneTwoState(brain);
+            newDecision = "chase";
+        } else {
+            newDecision = "assist";
+        }
+        color = 0xFF7700FF;
+    }
+    else if (brain->data->tmMyPassState == PASS_STATE_WAIT_RECEIVE_SWITCH) {
+        if (partnerAck || brain->msecsSince(brain->data->tmMyPassStateStartTime) > 2500.0) {
+            setPassState(PASS_STATE_EXIT);
+        }
+        newDecision = "assist";
+        color = 0x44FF88FF;
+    }
     else if (
         (
-            (angleGoodForKick && !brain->data->isFreekickKickingOff) 
+            (angleGoodForKick && !brain->data->isFreekickKickingOff)
             || reachedKickDir
         )
         && !avoidKick
@@ -1119,18 +1466,23 @@ NodeStatus StrikerDecide::tick() {
         && ball.range < KICK_RANGE
     )
     {
+        resetPassState(brain);
+        resetOneTwoState(brain);
         if (brain->data->kickType == "cross") newDecision = "cross";
-        else { // kickType == kick
+        else {
             double threatThreshold;
             brain->get_parameter("strategy.shoot.threat_threshold", threatThreshold);
             if (threatLevel < threatThreshold) newDecision = "safe_shoot";
             else newDecision = "kick";
-        }        
+        }
         color = 0x00FF00FF;
-        brain->data->isFreekickKickingOff = false; // 只要进一次 kick, 就不算是 kickoff 阶段了.
+        brain->data->isFreekickKickingOff = false;
     }
     else
     {
+        if (brain->data->tmMyPassState == PASS_STATE_IDLE) {
+            resetOneTwoState(brain);
+        }
         newDecision = "adjust";
         color = 0xFFFF00FF;
     }
@@ -1143,8 +1495,12 @@ NodeStatus StrikerDecide::tick() {
     brain->log->logToScreen(
         "tree/Decide",
         format(
-            "Decision: %s ballrange: %.2f ballyaw: %.2f kickDir: %.2f rbDir: %.2f angleGoodForKick: %d angleGoodForShoot: %d lead: %d", 
-            newDecision.c_str(), ballRange, ballYaw, kickDir, dir_rb_f, angleGoodForKick, angleGoodForShoot, brain->data->tmImLead
+            "Decision: %s ballrange: %.2f ballyaw: %.2f kickDir: %.2f rbDir: %.2f angleGoodForKick: %d angleGoodForShoot: %d lead: %d pass=%s oneTwo=%s partner=%d seq=%d",
+            newDecision.c_str(), ballRange, ballYaw, kickDir, dir_rb_f, angleGoodForKick, angleGoodForShoot, brain->data->tmImLead,
+            passStateCodeName(brain->data->tmMyPassState).c_str(),
+            oneTwoStateCodeName(brain->data->tmMyOneTwoState).c_str(),
+            brain->data->tmMyPassPartnerPlayerId,
+            brain->data->tmMyPassSequenceId
         ),
         color
     );
