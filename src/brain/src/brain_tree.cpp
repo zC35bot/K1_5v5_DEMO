@@ -759,7 +759,6 @@ NodeStatus GoalieGuard::onRunning()
     const bool atBlockingPose = dist < distTolerance && fabs(deltaTheta) < thetaTolerance;
 
     double ballVelX = 0.0;
-    double ballVelY = 0.0;
     if (brain->data->predictedBallPos.size() >= 2) {
         const auto &p0 = brain->data->predictedBallPos[0];
         const auto &p1 = brain->data->predictedBallPos[1];
@@ -767,7 +766,6 @@ NodeStatus GoalieGuard::onRunning()
         brain->get_parameter("ball_predictor.step_interval", stepIntervalMsec);
         const double dt = max(1e-3, stepIntervalMsec / 1000.0);
         ballVelX = (p1[0] - p0[0]) / dt;
-        ballVelY = (p1[1] - p0[1]) / dt;
     }
 
     const bool ballMovingToOwnGoal = ballVelX < -fabs(squatEnableBallSpeedX);

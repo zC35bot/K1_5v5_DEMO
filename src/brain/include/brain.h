@@ -138,7 +138,7 @@ public:
     // 根据真值校准 odom. 参数 x, y, theta 代表在球场坐标系的机器人的 Pose 真值
     void calibrateOdom(double x, double y, double theta);
 
-    double msecsSince(rclcpp::Time time);
+    double msecsSince(rclcpp::Time time) const;
 
     bool isFreekickStartPlacing();
 
