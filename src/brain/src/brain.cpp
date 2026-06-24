@@ -1,8 +1,8 @@
 #include <algorithm>
 #include <iostream>
 #include <string>
-#include <fstream>  // 娣诲姞杩欎竴琛?
-#include <yaml-cpp/yaml.h>  // 娣诲姞杩欎竴琛?
+#include <fstream>
+#include <yaml-cpp/yaml.h>
 
 #include "brain.h"
 #include "role_manager.h"
@@ -20,11 +20,11 @@ using std::placeholders::_1;
 
 Brain::Brain() : rclcpp::Node("brain_node")
 {
-    // 鍒濆鍖杢f骞挎挱鍣?
+    // Initialize TF broadcaster
     tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
 
-    // 瑕佹敞鎰忓弬鏁板繀椤诲厛鍦ㄨ繖閲屽０鏄庯紝鍚﹀垯绋嬪簭閲屼篃璇讳笉鍒?
-    // 閰嶇疆鍦?yaml 鏂囦欢涓殑鍙傛暟锛屽鏋滄湁灞傜骇缁撴瀯锛岀敤鐐瑰垎鍙锋潵鑾峰彇
+    // Parameters must be declared here before they can be read elsewhere.
+    // YAML parameters with hierarchy are accessed with dotted names.
 
     declare_parameter<int>("game.team_id", 0);
     declare_parameter<int>("game.player_id", 29);
@@ -281,12 +281,12 @@ void Brain::loadConfig()
     config->camAngleX = deg2rad(camDegX);
     config->camAngleY = deg2rad(camDegY);
 
-    // 浠庤瑙?config 涓姞杞界浉鍏冲弬鏁?
+    // Load additional camera parameters from the vision config.
     string visionConfigPath, visionConfigLocalPath;
     get_parameter("vision_config_path", visionConfigPath);
     get_parameter("vision_config_local_path", visionConfigLocalPath);
     if (!filesystem::exists(visionConfigPath)) {
-        // 鎶ラ敊鐒跺悗閫€鍑?
+        // Abort early if the required vision config is missing.
         RCLCPP_ERROR(get_logger(), "vision_config_path %s not exists", visionConfigPath.c_str());
         exit(1);
     }
@@ -329,8 +329,8 @@ void Brain::loadConfig()
 
 void Brain::tick()
 {
-    // 杈撳嚭 debug & log 鐩稿叧淇℃伅
-    // logObstacleDistance(); // 璁＄畻閲忓ぇ, 浠呴渶瑕佹椂浣跨敤
+    // Emit debug and log related information.
+    // logObstacleDistance(); // Expensive, enable only when needed.
     logLags();
     logStatusToConsole();
     updateLogFile();
@@ -550,7 +550,7 @@ void Brain::handleCooperation() {
     }
     log_(format("alive TM Count: %d", aliveTmIdxs.size()));
 
-    // log 褰撳墠 alive 闃熷弸鐨勪俊鎭?
+    // Log summary information for currently alive teammates.
     log_(format("Self: cost: %.1f, isLead: %d", data->tmMyCost, data->tmImLead));
 
 
@@ -1093,8 +1093,8 @@ void Brain::updateCostToKick() {
 
 bool Brain::isAngleGood(double goalPostMargin, string type) {
     double angle = 0;
-    if (type == "kick") angle = data->robotBallAngleToField; // type=="kick" 鏈哄櫒浜哄埌鐞? field 鍧愭爣绯讳腑鐨勬柟鍚?
-    if (type == "shoot") angle = data->robotPoseToField.theta; // type=="shoot" 鏈哄櫒浜烘湞鍚?
+    if (type == "kick") angle = data->robotBallAngleToField; // field-frame robot-to-ball angle
+    if (type == "shoot") angle = data->robotPoseToField.theta; // robot facing direction in field frame
 
 
     auto goalPostAngles = getGoalPostAngles(goalPostMargin);
@@ -1128,9 +1128,9 @@ bool Brain::isPrimaryStriker() {
         }
     }
 
-    if ( firstAliveStrikerIdx >= 0 && firstAliveStrikerIdx <  myIdx) return false; // 鏈?id 鏇村皬鐨勬椿鐨勫墠閿? 璁╀粬鏉ュ綋涓诲姏
+    if ( firstAliveStrikerIdx >= 0 && firstAliveStrikerIdx <  myIdx) return false; // Prefer the alive striker with smaller id.
 
-    // else 娌℃湁 id 鏇村皬鐨勬椿鐨勫墠閿? 鎴戞槸涓诲姏
+    // Otherwise there is no alive striker with smaller id, so I am primary.
     return true;
 }
 
@@ -1163,7 +1163,9 @@ void Brain::updateBallOut() {
     bool lastBallOut = tree->getEntry<bool>("ball_out");
     double range = lastBallOut ? 4.0 : 2.5;
     double threshold = config->ballOutThreshold;
-    threshold += (data->isFreekickKickingOff ? 1.0 : 0.0); // 濡傛灉姝ｅ湪韪换鎰忕悆, 鍒欐斁瀹藉嚭鐣屽垽鏂?    threshold *= (lastBallOut ? 1.0 : 1.5); // 闃叉闇囪崱. 濡傛灉涓婃鍒ゆ柇涓哄嚭鐣? 鍒欐斁瀹藉嚭鐣屽垽鏂?    tree->setEntry<bool>("ball_out", isBallOut(threshold, 10.0) && data->ball.range < range); // 涓ユ牸閫氳繃瀹氫綅鍒ゆ柇鏄惁鍑虹晫
+    threshold += (data->isFreekickKickingOff ? 1.0 : 0.0); // Relax the threshold slightly during our free-kick restart.
+    threshold *= (lastBallOut ? 1.0 : 1.5); // Add hysteresis to avoid jitter near the line.
+    tree->setEntry<bool>("ball_out", isBallOut(threshold, 10.0) && data->ball.range < range); // Require localization-based out-of-field confirmation.
 }
 
 void Brain::updateBallPrediction()
@@ -1530,7 +1532,7 @@ double Brain::msecsSince(rclcpp::Time time) const
 
 rclcpp::Time Brain::timePointFromHeader(std_msgs::msg::Header header) {
     auto stamp = header.stamp;
-    // NOTE 浼间箮鏃犺 use_sim_time 鏄惁涓虹湡, 閮戒娇鐢ㄧ殑鏄?ROS_TIME
+    // NOTE: in practice this seems to use ROS_TIME regardless of use_sim_time.
     auto sec = stamp.sec;
     auto nanosec = stamp.nanosec;
     if (sec <= 0 || nanosec <= 0) {
@@ -1640,7 +1642,7 @@ void Brain::joystickCallback(const booster_interface::msg::RemoteControllerState
     // prtDebug("joy!!", RED_CODE);
     string soundPack = config->soundPack;
 
-    // 閫氳繃鎵嬫焺鎺у埗鏈哄櫒浜? 涓嶉樆濉炴寜閿?
+    // Allow joystick override without blocking normal button handling.
     if (
         fabs(joy.lx) > 0.1
         || fabs(joy.ly) > 0.1
@@ -1654,9 +1656,9 @@ void Brain::joystickCallback(const booster_interface::msg::RemoteControllerState
         // prtWarn("Axe manual take over end");
     }
 
-    // 鎸夐敭鍝嶅簲椤哄簭: LT 缁勫悎閿? RT 缁勫悎閿? 鍗曢敭
-    if (joy.lt && !joy.rt) { // LT 缁勫悎閿?
-        // 鐢ㄤ簬鍦ㄧ嚎璋冭瘯鍙傛暟
+    // Button handling priority: LT combo, RT combo, then single buttons.
+    if (joy.lt && !joy.rt) { // LT combo
+        // Online tuning shortcuts
         if (joy.hat_u || joy.hat_d)
         {
             config->vxFactor += 0.01 * (joy.hat_u ? 1.0 : -1.0);
@@ -1677,7 +1679,7 @@ void Brain::joystickCallback(const booster_interface::msg::RemoteControllerState
             );
         }
 
-        // 鐢ㄤ簬鎺у埗鍒囨崲涓嶅悓鐨勭姸鎬?
+        // Switch between top-level control states.
         if (joy.x)
         {
             tree->setEntry<int>("control_state", 1);
@@ -1709,11 +1711,11 @@ void Brain::joystickCallback(const booster_interface::msg::RemoteControllerState
         }
     }
 
-    if (joy.rt) { // RT 缁勫悎閿?
+    if (joy.rt) { // RT combo
         // Nothing for now
     }
 
-    // else, 鍗曢敭浣?
+    // Otherwise handle single-button shortcuts.
     if (!joy.lt && !joy.rt) {
         if (joy.lb) {
             tree->setEntry<bool>("assist_chase", true);
@@ -1748,21 +1750,21 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
 {
     data->timeLastGamecontrolMsg = get_clock()->now();
 
-    // 澶勭悊姣旇禌鐨勪竴绾х姸鎬?
-    auto lastGameState = tree->getEntry<string>("gc_game_state"); // 姣旇禌鐨勪竴绾х姸鎬?
+    // Parse the primary game state.
+    auto lastGameState = tree->getEntry<string>("gc_game_state"); // previous primary game state
     vector<string> gameStateMap = {
-        "INITIAL", // 鍒濆鍖栫姸鎬? 鐞冨憳鍦ㄥ満澶栧噯澶?
-        "READY",   // 鍑嗗鐘舵€? 鐞冨憳杩涘満, 骞惰蛋鍒拌嚜宸辩殑濮嬪彂浣嶇疆
-        "SET",     // 鍋滄鍔ㄤ綔, 绛夊緟瑁佸垽鏈哄彂鍑哄紑濮嬫瘮璧涚殑鎸囦护
-        "PLAY",    // 姝ｅ父姣旇禌
-        "END"      // 姣旇禌缁撴潫
+        "INITIAL", // players are still outside the field / preparing
+        "READY",   // players enter and move to start positions
+        "SET",     // freeze and wait for the play command
+        "PLAY",    // normal match play
+        "END"      // match finished
     };
     string gameState = gameStateMap[static_cast<int>(msg.state)];
     tree->setEntry<string>("gc_game_state", gameState);
-    bool isKickOffSide = (msg.kick_off_team == config->teamId); // 鎴戞柟鏄惁鏄紑鐞冩柟
+    bool isKickOffSide = (msg.kick_off_team == config->teamId); // whether our side has kickoff
     tree->setEntry<bool>("gc_is_kickoff_side", isKickOffSide);
 
-    // 澶勭悊姣旇禌鐨勪簩绾х姸鎬?
+    // Parse the secondary game state.
     string gameSubStateType;
     switch (static_cast<int>(msg.secondary_state)) {
         case 0:
@@ -1770,10 +1772,10 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
             data->realGameSubState = "NONE";
             break;
         case 3:
-            gameSubStateType = "TIMEOUT"; // 鍖呭惈涓ら槦 timeout 鍜?瑁佸垽 timeout
+            gameSubStateType = "TIMEOUT"; // includes team timeouts and referee timeout
             data->realGameSubState = "TIMEOUT";
             break;
-        // 鏆傛椂涓嶅鐞嗗叾瀹冪姸鎬? 闄?TIMEOUT 澶? 閮芥寜 FREE_KICK 澶勭悊
+        // Other secondary states are currently normalized to FREE_KICK.
         case 4:
             // gameSubStateType = "DIRECT_FREEKICK";
             gameSubStateType = "FREE_KICK";
@@ -1811,15 +1813,15 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
             gameSubStateType = "FREE_KICK";
             break;
     }
-    vector<string> gameSubStateMap = {"STOP", "GET_READY", "SET"};                               // STOP: 鍋滀笅鏉? -> GET_READY: 绉诲姩鍒拌繘鏀绘垨闃插畧浣嶇疆; -> SET: 绔欎綇涓嶅姩
+    vector<string> gameSubStateMap = {"STOP", "GET_READY", "SET"}; // STOP -> GET_READY -> SET within sub-state flow
     string gameSubState = gameSubStateMap[static_cast<int>(msg.secondary_state_info[1])];
     tree->setEntry<string>("gc_game_sub_state_type", gameSubStateType);
     tree->setEntry<string>("gc_game_sub_state", gameSubState);
-    bool isSubStateKickOffSide = (static_cast<int>(msg.secondary_state_info[0]) == config->teamId); // 鍦ㄤ簩绾х姸鎬佷笅, 鎴戞柟鏄惁鏄紑鐞冩柟. 渚嬪, 褰撳墠浜岀骇鐘舵€佷负浠绘剰鐞? 鎴戞柟鏄惁鏄紑浠绘剰鐞冪殑涓€鏂?
+    bool isSubStateKickOffSide = (static_cast<int>(msg.secondary_state_info[0]) == config->teamId); // whether our side owns the current secondary restart
     tree->setEntry<bool>("gc_is_sub_state_kickoff_side", isSubStateKickOffSide);
 
     // cout << "game state: " << gameState << " game sub state type: " << gameSubStateType << endl;
-    // 鎵惧埌闃熺殑淇℃伅
+    // Find our team info and opponent team info.
     game_controller_interface::msg::TeamInfo myTeamInfo;
     game_controller_interface::msg::TeamInfo oppoTeamInfo;
     if (msg.teams[0].team_number == config->teamId)
@@ -1834,7 +1836,7 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
     }
     else
     {
-        // 鏁版嵁鍖呬腑娌℃湁鍖呭惈鎴戜滑鐨勯槦锛屼笉搴旇鍐嶅鐞嗕簡
+        // Ignore malformed packets that do not include our team.
         prtErr(format("received invalid game controller message team0 %d, team1 %d, teamId %d",
             msg.teams[0].team_number, msg.teams[1].team_number, config->teamId));
         return;
@@ -1842,7 +1844,7 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
 
     int liveCount = 0;
     int oppoLiveCount = 0;
-    // 澶勭悊鍒ょ綒鐘舵€? penalty[playerId - 1] 浠ｈ〃鎴戞柟鐨勭悆鍛樻槸鍚﹀浜庡垽缃氱姸鎬? 澶勭悊鍒ょ綒鐘舵€佹剰鍛崇潃涓嶈兘绉诲姩
+    // Update penalty status. Penalized players are treated as not movable/on-field unavailable.
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
         data->penalty[i] = static_cast<int>(myTeamInfo.players[i].penalty);
 
@@ -1865,9 +1867,9 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
     // cout << "penalty: " << data->penalty[0] << " " << data->penalty[1] << " " << data->penalty[2] << " " << data->penalty[3] << endl;
     // cout << "oppo penalty: " << data->oppoPenalty[0] << " " << data->oppoPenalty[1] << " " << data->oppoPenalty[2] << " " << data->oppoPenalty[3] << endl;
     bool lastIsUnderPenalty = tree->getEntry<bool>("gc_is_under_penalty");
-    bool isUnderPenalty = (data->penalty[config->playerId - 1] != PENALTY_NONE); // 褰撳墠 robot 鏄惁琚垽缃氫腑
+    bool isUnderPenalty = (data->penalty[config->playerId - 1] != PENALTY_NONE); // whether this robot is currently penalized
     tree->setEntry<bool>("gc_is_under_penalty", isUnderPenalty);
-    if (isUnderPenalty && !lastIsUnderPenalty) tree->setEntry<bool>("odom_calibrated", false); // 琚垽缃氫簡, 鍒欓渶瑕侀噸鏂拌繘鍦? 鍥犳闇€瑕侀噸鏂板畾浣?
+    if (isUnderPenalty && !lastIsUnderPenalty) tree->setEntry<bool>("odom_calibrated", false); // re-entry requires relocalization
 
     // log game state
     log->setTimeNow();
@@ -1880,7 +1882,7 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
         30.0
     );
 
-    // FOR FUN 澶勭悊杩涚悆鍚庣殑搴嗙鎸ユ墜鐨勯€昏緫
+    // For fun: keep score for celebration logic after goals.
     data->score = static_cast<int>(myTeamInfo.score);
     data->oppoScore = static_cast<int>(oppoTeamInfo.score);
 }
@@ -1895,11 +1897,11 @@ void Brain::detectionsCallback(const vision_interface::msg::Detections &msg)
     auto timePoint = timePointFromHeader(msg.header);
 
     auto now = get_clock()->now();
-    data->timeLastDet = timePoint; // 鐢ㄤ簬鍦ㄨ皟璇曚腑杈撳嚭寤惰繜淇℃伅
+    data->timeLastDet = timePoint; // used for lag diagnostics
 
     auto gameObjects = getGameObjects(msg);
 
-    // 瀵规娴嬪埌鐨勫璞¤繘琛屽垎缁?
+    // Split detections by object category.
     vector<GameObject> balls, goalposts, persons, robots, obstacles, markings;
     for (int i = 0; i < gameObjects.size(); i++)
     {
@@ -1912,7 +1914,7 @@ void Brain::detectionsCallback(const vision_interface::msg::Detections &msg)
         {
             persons.push_back(obj);
 
-            // 涓轰簡璋冭瘯鏂逛究, 鍙互鍦?config 涓缃?treat_person_as_robot, 浣垮緱 Person 琚綋浣?Robot 澶勭悊
+            // Optional debug mode: treat Person as Robot.
             if (config->treatPersonAsRobot)
                 robots.push_back(obj);
         }
@@ -1922,13 +1924,13 @@ void Brain::detectionsCallback(const vision_interface::msg::Detections &msg)
             markings.push_back(obj);
     }
 
-    // 鍒嗗埆澶勭悊鍒嗙粍鍚庣殑瀵硅薄
+    // Process each grouped object class separately.
     detectProcessBalls(balls);
     detectProcessGoalposts(goalposts);
     detectProcessMarkings(markings);
     detectProcessRobots(robots);
 
-    // 澶勭悊骞惰褰曡閲庝俊鎭?
+    // Update and log vision box information.
     detectProcessVisionBox(msg);
 
     // logVisionBox(timePoint);
@@ -1956,7 +1958,7 @@ void Brain::fieldLineCallback(const vision_interface::msg::LineSegments &msg)
     auto timePoint = timePointFromHeader(msg.header);
 
     auto now = get_clock()->now();
-    data->timeLastLineDet = timePoint; // 鐢ㄤ簬鍦ㄨ皟璇曚腑杈撳嚭寤惰繜淇℃伅
+    data->timeLastLineDet = timePoint; // used for lag diagnostics
 
     vector<FieldLine> lines = {};
     FieldLine line;
@@ -2102,24 +2104,24 @@ void Brain::odometerCallback(const booster_interface::msg::Odometer &msg)
     data->robotPoseToOdom.y = msg.y * config->robotOdomFactor;
     data->robotPoseToOdom.theta = msg.theta;
 
-    // 鏍规嵁 Odom 淇℃伅, 鏇存柊鏈哄櫒浜哄湪 Field 鍧愭爣绯讳腑鐨勪綅缃?
+    // Update robot pose in field coordinates from odom data.
     transCoord(
         data->robotPoseToOdom.x, data->robotPoseToOdom.y, data->robotPoseToOdom.theta,
         data->odomToField.x, data->odomToField.y, data->odomToField.theta,
         data->robotPoseToField.x, data->robotPoseToField.y, data->robotPoseToField.theta);
 
-    // 鍙戝竷tf鍙樻崲
+    // Publish TF transform.
     geometry_msgs::msg::TransformStamped transform;
     transform.header.stamp = this->get_clock()->now();
     transform.header.frame_id = "odom";
     transform.child_frame_id = "base_link";
 
-    // 璁剧疆骞崇Щ閮ㄥ垎
+    // Fill translation part.
     transform.transform.translation.x = data->robotPoseToOdom.x;
     transform.transform.translation.y = data->robotPoseToOdom.y;
     transform.transform.translation.z = 0.0;
 
-    // 璁剧疆鏃嬭浆閮ㄥ垎锛堜粠娆ф媺瑙掕浆鎹负鍥涘厓鏁帮級
+    // Fill rotation part by converting yaw to quaternion.
     tf2::Quaternion q;
     q.setRPY(0, 0, data->robotPoseToOdom.theta);
     transform.transform.rotation.x = q.x();
@@ -2130,10 +2132,10 @@ void Brain::odometerCallback(const booster_interface::msg::Odometer &msg)
     log->setTimeNow();
     log->log("debug/odom_callback", rerun::TextLog(format("x: %.1f, y: %.1f, z: %.1f", data->robotPoseToOdom.x, data->robotPoseToOdom.y, data->robotPoseToOdom.theta)));
 
-    // 骞挎挱tf鍙樻崲
+    // Broadcast TF transform.
     tf_broadcaster_->sendTransform(transform);
 
-    // Log Odom 淇℃伅
+    // Log odom-derived robot pose.
 
     log->setTimeNow();
     auto color = 0x00FF00FF;
@@ -2157,13 +2159,13 @@ void Brain::imageCallback(const sensor_msgs::msg::Image &msg)
     counter++;
     if (counter % config->rerunLogImgInterval == 0)
     {
-        // 鏈槻姝㈡憚鍍忓ご杩炴帴涓嶅ソ鏃? 鑷姩闄嶄綆鍒嗚鲸鐜? 褰卞搷 CamTrackBall 鐨勮绠? 鏇存柊鍒嗚鲸鐜囬厤缃?
+        // Track the actual image resolution in case the camera stream changes.
         config->camPixX = msg.width;
         config->camPixY = msg.height;
         log->log("debug/imageCallback", rerun::TextLog(format("img width: %.d, img height: %.d", msg.width, msg.height)));
 
         cv::Mat image;
-        // 鏍规嵁鍥惧儚缂栫爜鏍煎紡杩涜澶勭悊
+        // Convert according to the incoming image encoding.
         if (msg.encoding == "nv12" || msg.encoding == "NV12") {
             // NV12: Y plane (H x W) + interleaved UV (H/2 x W)
             size_t expected = (size_t)(msg.width * msg.height * 3 / 2);
@@ -2174,31 +2176,31 @@ void Brain::imageCallback(const sensor_msgs::msg::Image &msg)
             cv::Mat yuv(msg.height + msg.height / 2, msg.width, CV_8UC1, const_cast<uint8_t*>(msg.data.data()));
             cv::cvtColor(yuv, image, cv::COLOR_YUV2BGR_NV12);
         } else if (msg.encoding == "bgra8") {
-            // 鍒涘缓 OpenCV Mat 瀵硅薄锛屽鐞?BGRA 鏍煎紡鍥惧儚
+            // Wrap BGRA image and convert to BGR.
             image = cv::Mat(msg.height, msg.width, CV_8UC4, const_cast<uint8_t *>(msg.data.data()));
             cv::Mat imageBGR;
-            // 灏?BGRA 杞崲涓?BGR锛屽拷鐣?Alpha 閫氶亾
+            // Drop alpha and convert BGRA to BGR.
             cv::cvtColor(image, imageBGR, cv::COLOR_BGRA2BGR);
             image = imageBGR;
         } else if (msg.encoding == "bgr8") {
-            // 鍘熸湁 BGR8 澶勭悊閫昏緫
+            // Native BGR8 path.
             image = cv::Mat(msg.height, msg.width, CV_8UC3, const_cast<uint8_t *>(msg.data.data()));
         } else if (msg.encoding == "rgb8") {
-            // 鍘熸湁 RGB8 澶勭悊閫昏緫
+            // Native RGB8 path, convert to BGR.
             image = cv::Mat(msg.height, msg.width, CV_8UC3, const_cast<uint8_t *>(msg.data.data()));
             cv::cvtColor(image, image, cv::COLOR_RGB2BGR);
         } else {
-            // 澶勭悊鍏朵粬缂栫爜鏍煎紡锛屾垨鑰呰褰曢敊璇棩蹇?
+            // Reject unsupported encodings.
             prtErr(format("Unsupported image encoding: %s", msg.encoding.c_str()));
             return;
         }
 
-        // 鍘嬬缉鍥惧儚
+        // Compress the image before sending to rerun.
         std::vector<uint8_t> compressed_image;
-        std::vector<int> compression_params = {cv::IMWRITE_JPEG_QUALITY, 10}; // 10 琛ㄧず鍘嬬缉璐ㄩ噺锛屽彲浠ユ牴鎹渶瑕佽皟鏁?
+        std::vector<int> compression_params = {cv::IMWRITE_JPEG_QUALITY, 10}; // JPEG quality for rerun transport
         cv::imencode(".jpg", image, compressed_image, compression_params);
 
-        // 灏嗗帇缂╁悗鐨勫浘鍍忔暟鎹紶閫掔粰 rerun
+        // Send the compressed frame to rerun.
         // double time = msg.header.stamp.sec + static_cast<double>(msg.header.stamp.nanosec) * 1e-9;
         // log->setTimeSeconds(time);
         log->setTimeSeconds(timePointFromHeader(msg.header).seconds());
@@ -2208,10 +2210,10 @@ void Brain::imageCallback(const sensor_msgs::msg::Image &msg)
 
 void Brain::headPoseCallback(const geometry_msgs::msg::Pose& msg)
 {
-    // 璁＄畻 head_to_base 鐭╅樀
+    // Build the head-to-base transform.
     Eigen::Matrix4d headToBase = Eigen::Matrix4d::Identity();
 
-    // 浠庡洓鍏冩暟鑾峰彇鏃嬭浆鐭╅樀
+    // Convert quaternion to rotation matrix.
     Eigen::Quaterniond q(
         msg.orientation.w,
         msg.orientation.x,
@@ -2220,21 +2222,21 @@ void Brain::headPoseCallback(const geometry_msgs::msg::Pose& msg)
     );
     headToBase.block<3,3>(0,0) = q.toRotationMatrix();
 
-    // 璁剧疆骞崇Щ鍚戦噺
+    // Fill translation vector.
     headToBase.block<3,1>(0,3) = Eigen::Vector3d(
         msg.position.x,
         msg.position.y,
         msg.position.z
     );
 
-    // // 瀹氫箟骞惰绠?cam_to_head 鐭╅樀
+    // // Build and inspect the cam_to_head matrix if needed.
     // Eigen::Matrix4d camToHead;
     // camToHead << 0,  0,  1,  0,
     //             -1,  0,  0,  0,
     //              0, -1,  0,  0,
     //              0,  0,  0,  1;
 
-    // 璁＄畻 cam_to_base 鐭╅樀骞跺瓨鍌?
+    // Compute and cache the cam-to-base transform.
     data->camToRobot = headToBase * config->camToHead;
 }
 
@@ -2242,7 +2244,7 @@ void Brain::recoveryStateCallback(const booster_interface::msg::RawBytesMsg &msg
 {
     // uint8_t state; // IS_READY = 0, IS_FALLING = 1, HAS_FALLEN = 2, IS_GETTING_UP = 3,
     // uint8_t is_recovery_available; // 1 for available, 0 for not available
-    // 浣跨敤 RobotRecoveryState 缁撴瀯锛屽皢msg閲岄潰鐨刴sg杞崲涓篟obotRecoveryState
+    // Decode raw recovery state bytes into RobotRecoveryState.
     try
     {
         const std::vector<unsigned char>& buffer = msg.msg;
@@ -2327,7 +2329,7 @@ void Brain::identifyFieldLine(FieldLine& line) {
                 isBallOnFieldLine(line)
                 && (tree->getEntry<string>("gc_game_sub_state") == "GET_READY" || tree->getEntry<string>("gc_game_sub_state") == "SET")
                 && (data->realGameSubState == "CORNER_KICK")
-            ) confidence += 0.3; // 瑙掔悆鏃? 鐞冨湪搴曠嚎涓?
+            ) confidence += 0.3; // During corner-kick setup, ball on the goal line is plausible.
         }
         if (mapLine.type == LineType::MiddleLine) {
             confidence += 0.3 * markCntOnFieldLine("XCross", line, 0.2);
@@ -2335,17 +2337,17 @@ void Brain::identifyFieldLine(FieldLine& line) {
                 isBallOnFieldLine(line)
                 && (tree->getEntry<string>("gc_game_sub_state") == "GET_READY" || tree->getEntry<string>("gc_game_sub_state") == "SET")
                 && (data->realGameSubState == "GOAL_KICK")
-            ) confidence += 0.3; // 闂ㄧ悆鏃? 鐞冨湪涓嚎涓?
+            ) confidence += 0.3; // During goal-kick setup, ball on the center line is plausible.
         }
         if (mapLine.type == LineType::TouchLine) {
             if (
                 isBallOnFieldLine(line)
                 && (tree->getEntry<string>("gc_game_sub_state") == "GET_READY" || tree->getEntry<string>("gc_game_sub_state") == "SET")
                 && (data->realGameSubState == "GOAL_KICK" || data->realGameSubState == "CORNER_KICK" || data->realGameSubState == "THROW_IN")
-            ) confidence += 0.3; // 鍙戣鐞? 闂ㄧ悆鍜岃竟绾跨悆鏃? 鐞冨湪杈圭嚎涓?
+            ) confidence += 0.3; // During throw-in / corner / goal-kick setup, ball on touchline is plausible.
         }
 
-        // 闃叉灏?goalarealine 璇涓?goalline
+        // Prevent goal-area lines from being misclassified as goal lines.
         auto fd = config->fieldDimensions;
         if (
             mapLine.type == LineType::GoalLine
@@ -2353,7 +2355,7 @@ void Brain::identifyFieldLine(FieldLine& line) {
             && fabs(line.posToField.y1) < fd.goalAreaWidth / 2 + 0.5
         ) confidence -= 0.3;
 
-        // 闃叉灏?penalty area 璇涓?touchline
+        // Prevent penalty-area edges from being misclassified as touchlines.
         if (
             mapLine.type == LineType::TouchLine
             && min(fabs(line.posToField.x0), fabs(line.posToField.x1)) > fd.length / 2.0 -  fd.penaltyAreaLength - 0.5
@@ -2441,7 +2443,7 @@ void Brain::identifyGoalpost(GameObject& goalpost) {
     goalpost.id = 0;
     goalpost.name = half + side;
     goalpost.idConfidence = 1.0;
-    // TODO 鍙傝€?markings, 鍋氭洿涓虹簿缁嗙殑 goalpostid
+    // TODO: combine with markings for finer goalpost id assignment.
 }
 
 vector<FieldLine> Brain::processFieldLines(vector<FieldLine>& fieldLines) {
@@ -2514,7 +2516,7 @@ vector<GameObject> Brain::getGameObjects(const vision_interface::msg::Detections
         gObj.color = obj.color;
 
         if (obj.target_uv.size() == 2)
-        { // 鍦伴潰鏍囧織鐐圭殑绮剧‘鍍忕礌浣嶇疆淇℃伅
+        { // Refined pixel location for ground-plane markers
             gObj.precisePixelPoint.x = static_cast<double>(obj.target_uv[0]);
             gObj.precisePixelPoint.y = static_cast<double>(obj.target_uv[1]);
         }
@@ -2528,30 +2530,30 @@ vector<GameObject> Brain::getGameObjects(const vision_interface::msg::Detections
 
         // 娣卞害浼樺厛
         // if (obj.position.size() > 0 && !(obj.position[0] == 0 && obj.position[1] == 0))
-        // { // 娣卞害娴嬭窛鎴愬姛锛?浠ユ繁搴︽祴璺濅负鍑?
+        // { // Depth range available, prefer depth position.
         //     gObj.posToRobot.x = obj.position[0];
         //     gObj.posToRobot.y = obj.position[1];
         // }
         // else
-        // { // 娣卞害娴嬭窛澶辫触锛屼互鎶曞奖璺濈涓哄噯
+        // { // Depth range unavailable, fall back to projection.
         //     gObj.posToRobot.x = obj.position_projection[0];
         //     gObj.posToRobot.y = obj.position_projection[1];
-        // } // 娉ㄦ剰锛寊 鍊兼病鏈夌敤鍒?
+        // } // Note: kept only as reference.
 
-        // 涓嶇敤娣卞害娴嬭窛, 鐩存帴鐢ㄦ姇褰辫窛绂?
+        // Use projection-based position directly.
         gObj.posToRobot.x = obj.position_projection[0];
         gObj.posToRobot.y = obj.position_projection[1];
 
-        // 璁＄畻瑙掑害
+        // Compute observation angles.
         gObj.range = norm(gObj.posToRobot.x, gObj.posToRobot.y);
         gObj.yawToRobot = atan2(gObj.posToRobot.y, gObj.posToRobot.x);
         gObj.pitchToRobot = atan2(config->robotHeight, gObj.range); // 娉ㄦ剰杩欐槸涓€涓繎浼煎€?
 
-        // 璁＄畻瀵硅薄鍦?field 鍧愭爣绯讳腑鐨勪綅缃?
+        // Convert the object pose into field coordinates.
         transCoord(
             gObj.posToRobot.x, gObj.posToRobot.y, 0,
             data->robotPoseToField.x, data->robotPoseToField.y, data->robotPoseToField.theta,
-            gObj.posToField.x, gObj.posToField.y, gObj.posToField.z // 娉ㄦ剰, z 娌℃湁鍦ㄥ叾瀹冨湴鏂逛娇鐢? 杩欓噷浠呬负鍙傛暟鍗犱綅浣跨敤
+            gObj.posToField.x, gObj.posToField.y, gObj.posToField.z // z is only a placeholder here
         );
 
         res.push_back(gObj);
@@ -2564,23 +2566,23 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
 {
     static rclcpp::Time lastSeenRealBallTime;
     double bestConfidence = 0;
-    int indexRealBall = -1;  // 璁や负鍝竴涓悆鏄湡鐨? -1 琛ㄧず娌℃湁妫€娴嬪埌鐞?
+    int indexRealBall = -1;  // selected real ball index, -1 means none found
 
-    // 鎵惧嚭鏈€鍙兘鐨勭湡鐞?
+    // Pick the most plausible real ball.
     for (int i = 0; i < ballObjs.size(); i++)
     {
         auto ballObj = ballObjs[i];
         auto oldBall = data->ball;
 
-        // 闃叉鎶婂ぉ涓婄殑鐏瘑鍒负鐞?
+        // Reject obvious false positives high in the air.
         if (ballObj.posToRobot.x < -0.5 || ballObj.posToRobot.x > 15.0)
             continue;
 
-        // 鎺掗櫎鍦ㄥ満澶栧お杩滅殑鐞? 娉ㄦ剰杩欎釜鍔熻兘浼氬奖鍝?cahse 绛夊姛鑳? 鍏堜笉閲囩敤.
+        // Optional: reject balls too far outside the field.
         // if (isBallOut(2.0, 2.0))
         //     continue;
 
-        // 濡傛灉妫€娴嬪嚭鐨勭悆涓庝笂娆＄湅鍒扮殑鐞? 璺濈鍜屾椂闂撮兘寰堣繎, 鍒欏鍏?confidence 杩涜閫傚綋鍔犲垎
+        // Could boost confidence if the ball is close to the previous valid one.
         // double c = ballObj.confidence;
         // double oldC = oldBall.confidence;
         // double msecs = msecsSince(oldBall.timePoint);
@@ -2594,14 +2596,14 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
         //     ballObj.confidence
         // )));
 
-        // 鍒ゆ柇: 濡傛灉缃俊搴﹀お浣? 鍒欒涓烘槸璇
+        // Skip candidates whose confidence is too low.
         if (ballObj.confidence < config->ballConfidenceThreshold)
             continue;
 
-        // TODO 鍔犲叆鏇村鎺掗櫎鍙傛暟, 渚嬪鍦ㄨ韩浣撲笂, 鏄庢樉鍦ㄧ悆鍦哄, 浣嶇疆绐佺劧澶у箙搴﹀彉鍖栫瓑
-        // 琚伄鎸＄殑鏉′欢瑕佸姞鍏? 濡傛灉绐佺劧娑堝け, 娌℃湁閬尅鐨勮瘽, 鍒欏彧鐩镐俊涓€灏忎細鍎? 濡傛灉鏈夐伄鎸? 鍙互鐩镐俊姣旇緝闀跨殑鏃堕棿.
+        // TODO: add more rejection rules such as body overlap or abrupt jumps.
+        // Also consider different timeout policy for occluded vs. non-occluded cases.
 
-        // 鎵惧嚭鍓╀笅鐨勭悆涓? 缃俊搴︽渶楂樼殑
+        // Among the remaining candidates, keep the highest-confidence one.
         if (ballObj.confidence > bestConfidence)
         {
             bestConfidence = ballObj.confidence;
@@ -2612,7 +2614,7 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
     auto now = this->get_clock()->now();
 
     if (indexRealBall >= 0)
-    { // 妫€娴嬪埌鐞冧簡
+    { // Ball detected
         data->ballDetected = true;
 
         data->ball = ballObjs[indexRealBall];
@@ -2634,7 +2636,7 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
         data->lose_ball = false;
     }
     else
-    { // 娌℃湁妫€娴嬪埌鐞?
+    { // No ball detected
         log->setTimeNow();
         // log->log("image/detection_boxes_realball", rerun::Clear::FLAT);
         data->ballDetected = false;
@@ -2656,13 +2658,13 @@ void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
         // data->ball.confidence = 0; // DO NOT set confidence to 0, confidence decay depends on this.
     }
 
-    // 璁＄畻鏈哄櫒浜哄埌鐞冪殑鍚戦噺, 鍦?field 鍧愭爣绯讳腑鐨勬柟鍚?
+    // Compute robot-to-ball direction in field coordinates.
     data->robotBallAngleToField = atan2(data->ball.posToField.y - data->robotPoseToField.y, data->ball.posToField.x - data->robotPoseToField.x);
 }
 
 void Brain::detectProcessMarkings(const vector<GameObject> &markingObjs)
 {
-    // // for testing 娴嬭窛绋冲畾鎬?---------
+    // // For testing penalty-point range stability.
     // for (int i = 0; i < markingObjs.size(); i++) {
     //    auto m = markingObjs[i];
     //    if (m.label != "PenaltyPoint" || m.posToField.x < 0.0) continue;
@@ -2676,21 +2678,21 @@ void Brain::detectProcessMarkings(const vector<GameObject> &markingObjs)
     // }
     // // end testing
 
-    const double confidenceValve = 50; // confidence 浣庝簬杩欎釜闃堝€? 鎺掗櫎
+    const double confidenceValve = 50; // reject detections below this confidence
     vector<GameObject> markings = {};
     for (int i = 0; i < markingObjs.size(); i++)
     {
         auto marking = markingObjs[i];
 
-        // 鍒ゆ柇: 濡傛灉缃俊搴﹀お浣? 鍒欒涓烘槸璇
+        // Skip detections whose confidence is too low.
         if (marking.confidence < confidenceValve)
             continue;
 
-        // 鎺掗櫎澶╃殑涓婅璇嗗埆鏍囪
+        // Reject obvious false positives high in the air.
         if (marking.posToRobot.x < -0.5 || marking.posToRobot.x > 15.0)
             continue;
 
-        // 濡傛灉閫氳繃浜嗛噸閲嶈€冮獙, 鍒欒鍏?brain
+        // Keep detections that pass the checks above.
         identifyMarking(marking);
         markings.push_back(marking);
     }
@@ -2718,13 +2720,13 @@ void Brain::detectProcessMarkings(const vector<GameObject> &markingObjs)
 
 void Brain::detectProcessGoalposts(const vector<GameObject> &goalpostObjs)
 {
-    const double confidenceValve = 50; // confidence 浣庝簬杩欎釜闃堝€? 鎺掗櫎
+    const double confidenceValve = 50; // reject detections below this confidence
     vector<GameObject> goalposts = {};
 
     for (int i = 0; i < goalpostObjs.size(); i++) {
         auto goalpost = goalpostObjs[i];
 
-        // 鍒ゆ柇: 濡傛灉缃俊搴﹀お浣? 鍒欒涓烘槸璇
+        // Skip detections whose confidence is too low.
         if (goalpost.confidence < confidenceValve)
             continue;
 
@@ -2773,13 +2775,13 @@ void Brain::detectProcessRobots(const vector<GameObject> &robotObjs) {
     //         }
     //     }
     //     // prtDebug(format("minDist = %.2f", minDist));
-    //     if (minDist < 0.5) { // 璁や负鏄悓涓€涓満鍣ㄤ汉
+    //     if (minDist < 0.5) { // Treat as the same robot.
     //         robots[minIndex] = rbt;
-    //     } else { // 璁や负鏄笉鍚岀殑鏈哄櫒浜?
+    //     } else { // Treat as a different robot.
     //         robots.push_back(rbt);
     //     }
     // }
-    // // 娉ㄦ剰杩欓噷涓嶆竻鐞嗗凡缁忕湅涓嶈鐨勬満鍣ㄤ汉, 鑰屾槸鍦?updateMemory 涓繘琛屽鐞?
+    // // Do not remove unseen robots here; updateMemory() handles memory cleanup.
 
     vector<GameObject> robots = {};
     for (int i = 0; i < robotObjs.size(); i++) {
@@ -2799,12 +2801,12 @@ void Brain::detectProcessVisionBox(const vision_interface::msg::Detections &msg)
     // rclcpp::Time timePoint(detection_time_stamp.sec, detection_time_stamp.nanosec);
     auto timePoint = timePointFromHeader(msg.header);
 
-    // 澶勭悊骞惰褰曡閲庝俊鎭?
+    // Process and record the current vision box.
     VisionBox vbox;
     vbox.timePoint = timePoint;
     for (int i = 0; i < msg.corner_pos.size(); i++) vbox.posToRobot.push_back(msg.corner_pos[i]);
 
-    // 澶勭悊宸︿笂涓庡彸涓婁袱鐐?x 灏忎簬 0 , 瀹為檯涓烘棤闄愯繙鐨勫満鏅?
+    // Clamp top corners whose x value falls behind the robot to a far finite limit.
     const double VISION_LIMIT = 20.0;
     vector<vector<double>> v = {};
     for (int i = 0; i < 4; i++) {
@@ -2824,7 +2826,7 @@ void Brain::detectProcessVisionBox(const vision_interface::msg::Detections &msg)
         }
     }
 
-    // 杞崲鍒?field 鍧愭爣绯讳腑
+    // Convert into field coordinates.
     for (int i = 0; i < 5; i++) {
         double xr, yr, xf, yf, __;
         xr = vbox.posToRobot[2 * i];
@@ -2921,7 +2923,7 @@ void Brain::logDetection(const vector<GameObject> &gameObjects, bool logBounding
                 obj.confidence)
             )
         );
-        points.push_back(rerun::Vec2D{obj.posToField.x, -obj.posToField.y}); // y 鍙栧弽鏄洜涓?rerun Viewer 鐨勫潗鏍囩郴鏄乏鎵嬬郴銆傝浆涓€涓嬬湅璧锋潵鏇存柟渚裤€?
+        points.push_back(rerun::Vec2D{obj.posToField.x, -obj.posToField.y}); // Flip y to match the rerun viewer convention.
         points_r.push_back(rerun::Vec2D{obj.posToRobot.x, -obj.posToRobot.y});
         mins.push_back(rerun::Vec2D{obj.boundingBox.xmin, obj.boundingBox.ymin});
         sizes.push_back(rerun::Vec2D{obj.boundingBox.xmax - obj.boundingBox.xmin, obj.boundingBox.ymax - obj.boundingBox.ymin});
@@ -2988,7 +2990,7 @@ void Brain::logMemRobots() {
     {
         auto rbt = rbts[i];
         log->logRobot("field/robots", Pose2D({rbt.posToField.x, rbt.posToField.y, -M_PI}), 0xFF0000FF);
-        // circles.push_back(log->circle(rbt.posToField.x, -rbt.posToField.y, 0.5)); // y 鍙栧弽鏄洜涓?rerun Viewer 鐨勫潗鏍囩郴鏄乏鎵嬬郴銆傝浆涓€涓嬬湅璧锋潵鏇存柟渚裤€?
+        // circles.push_back(log->circle(rbt.posToField.x, -rbt.posToField.y, 0.5)); // Flip y to match the rerun viewer convention.
         // points_r.push_back(rerun::Vec2D{rbt.posToRobot.x, -rbt.posToRobot.y});
     }
 
@@ -3010,7 +3012,7 @@ void Brain::logObstacles() {
     // log->setTimeNow();
     // time is set on the outside
 
-    // 璁板綍闅滅鐗?鍗虫湁琚崰鐢ㄧ殑缃戞牸)
+    // Log occupied obstacle cells.
     auto obs = data->getObstacles();
     vector<rerun::Vec2D> points;
     vector<rerun::Color> colors;
@@ -3019,7 +3021,7 @@ void Brain::logObstacles() {
     for (int i = 0; i < obs.size(); i++) {
         auto o = obs[i];
 
-        if (o.confidence < occThreshold) continue; // 杩欎釜閫昏緫瑕嗙洊浜嗗悗闈㈢殑閫昏緫, 娉ㄦ帀鍙互浠ヤ笉鍚岄鑹?log 涓嶅悓鐨勭疆淇″害.
+        if (o.confidence < occThreshold) continue; // Keep only confidently occupied cells in the main log.
 
         points.push_back(rerun::Vec2D{o.posToField.x, -o.posToField.y});
         double mem_msecs = get_parameter("obstacle_avoidance.obstacle_memory_msecs").as_double();
@@ -3041,34 +3043,34 @@ void Brain::logObstacles() {
 
 void Brain::logDepth(int grid_x_count, int grid_y_count, vector<vector<int>> &grid_occupied, vector<rerun::Vec3D> &points_robot) {
     // time is set on the outside
-    const double grid_size = get_parameter("obstacle_avoidance.grid_size").as_double();  // 缃戞牸澶у皬
+    const double grid_size = get_parameter("obstacle_avoidance.grid_size").as_double();  // grid cell size
     const double x_min = 0.0, x_max = get_parameter("obstacle_avoidance.max_x").as_double();
     const double y_min = -get_parameter("obstacle_avoidance.max_y").as_double();
     const double y_max = -y_min;
 
-    // 璁板綍鍘熷鐐逛簯鍜岀綉鏍?
+    // Log raw point cloud and occupancy grid.
     vector<rerun::Position3D> vertices;
     vector<rerun::Color> vertex_colors;
     vector<array<uint32_t, 3>> triangle_indices;
-    const int OCCUPANCY_THRESHOLD = get_parameter("obstacle_avoidance.occupancy_threshold").as_int(); // 璁剧疆涓€涓樉绀虹敤鐨勯槇鍊?
+    const int OCCUPANCY_THRESHOLD = get_parameter("obstacle_avoidance.occupancy_threshold").as_int(); // visualization threshold
 
     for (int i = 0; i < grid_x_count; i++) {
         for (int j = 0; j < grid_y_count; j++) {
             if (grid_occupied[i][j] > 0) {
-                // 璁＄畻鏈夐殰纰嶇綉鏍肩殑鍥涗釜椤剁偣鍧愭爣
+                // Compute the four corners of this occupied cell.
                 double x0 = x_min + i * grid_size;
                 double y0 = y_min + j * grid_size;
                 double x1 = x0 + grid_size;
                 double y1 = y0 + grid_size;
 
-                // 娣诲姞鍥涗釜椤剁偣
+                // Add four vertices.
                 uint32_t base_index = vertices.size();
                 vertices.push_back({x0, y0, 0.0});
                 vertices.push_back({x1, y0, 0.0});
                 vertices.push_back({x1, y1, 0.0});
                 vertices.push_back({x0, y1, 0.0});
 
-                // 璁剧疆棰滆壊锛氭牴鎹崰鐢ㄦ儏鍐佃缃笉鍚岀殑绾㈣壊
+                // Set color intensity based on occupancy count.
                 rerun::Color color;
                 if (grid_occupied[i][j] > OCCUPANCY_THRESHOLD) {
                     color = rerun::Color(255, 0, 0, 255);  // RGBA, 绾㈣壊
@@ -3080,7 +3082,7 @@ void Brain::logDepth(int grid_x_count, int grid_y_count, vector<vector<int>> &gr
                 vertex_colors.push_back(color);
                 vertex_colors.push_back(color);
 
-                // 娣诲姞涓や釜涓夎褰㈤潰
+                // Add two triangle faces.
                 triangle_indices.push_back({base_index, base_index + 1, base_index + 2});
                 triangle_indices.push_back({base_index, base_index + 2, base_index + 3});
             }
@@ -3120,7 +3122,7 @@ void Brain::logDepth(int grid_x_count, int grid_y_count, vector<vector<int>> &gr
         rerun::Boxes3D::from_centers_and_half_sizes(
             {{ data->ball.posToRobot.x, data->ball.posToRobot.y, h/2}},
             {{ r, r, h/2}})
-        .with_colors(0x00FF0044)     // 鍗婇€忔槑缁胯壊
+        .with_colors(0x00FF0044)     // translucent green
     );
 }
 
@@ -3176,15 +3178,15 @@ void Brain::updateFieldPos(GameObject &obj) {
 void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
 {
     try {
-        // 妫€鏌ュ浘鍍忔暟鎹槸鍚︽湁鏁?
+        // Validate incoming depth image data.
         if (msg.data.empty() || msg.height == 0 || msg.width == 0) {
             RCLCPP_WARN(get_logger(), "Received empty depth image");
             return;
         }
 
-        // 鍒涘缓娣卞害鍥惧儚鍜岃浆鎹?
+        // Create the depth image and convert to float meters.
         cv::Mat depthFloat;
-        // 鏍规嵁鍥惧儚缂栫爜鏍煎紡杩涜澶勭悊
+        // Convert based on incoming depth encoding.
         if (msg.encoding == "16UC1" || msg.encoding == "mono16") {
             size_t expected = (size_t)msg.width * msg.height * sizeof(uint16_t);
             if (msg.data.size() < expected) {
@@ -3192,9 +3194,9 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
                 return;
             }
             cv::Mat depthRaw(msg.height, msg.width, CV_16UC1, const_cast<uint8_t*>(msg.data.data()));
-            depthRaw.convertTo(depthFloat, CV_32FC1, 1.0 / 1000.0); // 鑻ユ槸瀹為檯娣卞害鍗曚綅 mm
+            depthRaw.convertTo(depthFloat, CV_32FC1, 1.0 / 1000.0); // convert mm to meters
         } else if (msg.encoding == "32FC1") {
-            // 妫€鏌ユ暟鎹ぇ灏忔槸鍚︽纭?
+            // Validate buffer size.
             size_t expected_size = msg.height * msg.width * sizeof(float);
             if (msg.data.size() != expected_size) {
                 RCLCPP_ERROR(get_logger(), "Depth image size mismatch: expected %zu, got %zu",
@@ -3202,7 +3204,7 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
                 return;
             }
 
-            // 鐩存帴鍒涘缓 32 浣嶆诞鐐规暟鏍煎紡鐨勬繁搴﹀浘鍍?
+            // Wrap a native 32-bit float depth image.
             depthFloat = cv::Mat(msg.height, msg.width, CV_32FC1,
                 const_cast<float*>(reinterpret_cast<const float*>(msg.data.data()))).clone();
 
@@ -3219,18 +3221,18 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
         const double cy = config->camcy;
         // cout << "fx = " << fx << " fy = " << fy << " cx = " << cx << " cy = " << cy << endl;
 
-        // 瀹氫箟缃戞牸鍙傛暟
-        const double grid_size = get_parameter("obstacle_avoidance.grid_size").as_double();  // 缃戞牸澶у皬
+        // Grid configuration.
+        const double grid_size = get_parameter("obstacle_avoidance.grid_size").as_double();  // grid cell size
         const double x_min = 0.0, x_max = get_parameter("obstacle_avoidance.max_x").as_double();
         const double y_min = -get_parameter("obstacle_avoidance.max_y").as_double();
         const double y_max = -y_min;
         const int grid_x_count = static_cast<int>((x_max - x_min) / grid_size);
         const int grid_y_count = static_cast<int>((y_max - y_min) / grid_size);
 
-        // 鍒涘缓缃戞牸鍗犵敤鏁扮粍
+        // Occupancy grid accumulator.
         vector<vector<int>> grid_occupied(grid_x_count, vector<int>(grid_y_count, 0));
 
-        // 澶勭悊娣卞害鍥惧儚鐐?
+        // Process sampled depth pixels.
         const int sampleStep = get_parameter("obstacle_avoidance.depth_sample_step").as_int();
         for (int y = 0; y < msg.height; y += sampleStep)
         {
@@ -3239,23 +3241,23 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
                 float depth = depthFloat.at<float>(y, x);
                 if (depth > 0)
                 {
-                    // 杞崲鍒扮浉鏈哄潗鏍囩郴
+                    // Convert to camera coordinates.
                     double x_cam = (x - cx) * depth / fx;
                     double y_cam = (y - cy) * depth / fy;
                     double z_cam = depth;
 
-                    // 杞崲鍒版満鍣ㄤ汉鍧愭爣绯?
+                    // Convert to robot coordinates.
                     Eigen::Vector4d point_cam(x_cam, y_cam, z_cam, 1.0);
                     Eigen::Vector4d point_robot = data->camToRobot * point_cam;
 
-                    // 璁板綍鐐圭敤浜庡彲瑙嗗寲
+                    // Save points for visualization.
                     points_robot.push_back(rerun::Vec3D{point_robot(0), point_robot(1), point_robot(2)});
 
-                    // 鏇存柊缃戞牸鍗犵敤鎯呭喌
+                    // Update occupancy counts.
                     const double Z_THRESHOLD = get_parameter("obstacle_avoidance.obstacle_min_height").as_double();
-                    const double EXCLUDE_MAX_X = get_parameter("obstacle_avoidance.exclusion_x").as_double(); // 鎺掗櫎鏈哄櫒浜鸿嚜宸辩殑韬綋
+                    const double EXCLUDE_MAX_X = get_parameter("obstacle_avoidance.exclusion_x").as_double(); // exclude the robot body
                     const double EXCLUDE_MIN_X = -EXCLUDE_MAX_X;
-                    const double EXCLUDE_MAX_Y = get_parameter("obstacle_avoidance.exclusion_y").as_double(); // 鎺掗櫎鏈哄櫒浜鸿嚜宸辩殑韬綋
+                    const double EXCLUDE_MAX_Y = get_parameter("obstacle_avoidance.exclusion_y").as_double(); // exclude the robot body
                     const double EXCLUDE_MIN_Y = -EXCLUDE_MAX_Y;
 
                     auto isInRange = [&]() {
@@ -3292,7 +3294,7 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
         auto obs_old = data->getObstacles();
         vector<GameObject> obs_new = {};
 
-        // 鏈鐪嬪埌鐨勮鍏?obstables
+        // Obstacles observed in this frame.
         for (int i = 0; i < grid_x_count; i++) {
             for (int j = 0; j < grid_y_count; j++) {
                 if (grid_occupied[i][j] > 0) {
@@ -3308,9 +3310,9 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
             }
         }
 
-        // 娓呯悊鏃?obstacle
+        // Merge with remembered obstacles.
         for (int i = 0; i < obs_old.size(); i++) {
-           // 鍏堟妸褰撳墠瑙嗛噹鑼冨洿鍐呯殑鏃?obstacle 娓呯┖, 娉ㄦ剰瑙掑害鍙槸绮楃暐璁＄畻, 骞堕€氳繃 offset 閫傚綋鎵╁ぇ浜嗕竴浜涜寖鍥?
+           // Clear old obstacles that should have been visible in the current view.
             double visionLeft = data->headYaw + config->camAngleX / 2;
             double visionRight = data->headYaw - config->camAngleX / 2;
             auto obs = obs_old[i];
@@ -3319,7 +3321,7 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
             double obsYawRight = atan2(obs.posToRobot.y + offset, obs.posToRobot.x + offset);
             if (obsYawLeft < visionLeft && obsYawRight > visionRight) continue;
 
-            // 濡傛灉鏃х殑 obs 涓庢柊鐨?obs 澶繃鎺ヨ繎, 鍒欒涓烘棫鐨?obs 宸茬粡涓嶅瓨鍦? 闃叉杈圭晫鎯呭喌涓?obs 鍫嗙Н
+            // If an old obstacle is already close to a newly observed one, drop the old copy to avoid duplicates.
             bool found = false;
             for (int j = 0; j < obs_new.size(); j++) {
                 auto obs_n = obs_new[j];
@@ -3336,7 +3338,7 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
         }
 
 
-        data->setObstacles(obs_new); // note: 姝ゅ涓嶆竻绌鸿秴鏃剁殑鏃?obstacles, 鑰屽湪 tick 涓竻鐞?
+        data->setObstacles(obs_new); // Expired obstacles are cleaned later in tick().
         log->setTimeSeconds(timePointFromHeader(msg.header).seconds());
         logDepth(grid_x_count, grid_y_count, grid_occupied, points_robot);
         logObstacles();
@@ -3420,7 +3422,7 @@ void Brain::updateLogFile() {
         log->updateLogFilePath();
 }
 
-// ------------------------------------------------------ 璋冭瘯 log 鐩稿叧 ------------------------------------------------------
+// ------------------------------------------------------ debug log helpers ------------------------------------------------------
 void Brain::logObstacleDistance() {
     log->setTimeNow();
 
@@ -3650,9 +3652,9 @@ string Brain::getComLogString() {
         auto status = data->tmStatus[idx];
         ss << "P" << idx + 1 << "[";
         if (status.isAlive)
-            ss << GREEN_CODE << "鈽? << CYAN_CODE;
+            ss << GREEN_CODE << "*" << CYAN_CODE;
         else
-            ss << RED_CODE << "鈽? << CYAN_CODE;
+            ss << RED_CODE << "-" << CYAN_CODE;
         ss << "]\tCost: " << format("%.1f", status.cost);
         ss << "\tLead: ";
         if (status.isLead)
@@ -3699,31 +3701,31 @@ void Brain::playSoundForFun() {
 }
 
 // =============================================================================
-//  璇峰皢浠ヤ笅浠ｇ爜杩藉姞鍒?src/brain/src/brain.cpp 鐨勬渶鏈熬 (鍦ㄦ渶鍚庣殑 } 涔嬪悗鎴栬€呬箣鍓嶅潎鍙紝纭繚鍦?namespace 澶栨垨绫诲畾涔夊)
+// Strategy utility helpers
 // =============================================================================
 
 /**
- * 璁＄畻褰撳墠鍚?dir 鏂瑰悜韪㈢悆鐨勪环鍊肩殑澶у皬.
+ * Evaluate the value of kicking toward the given direction.
  */
 double Brain::kickValue(double dir)
 {
-    // 绠€鍗曠殑浠峰€艰瘎浼帮細濡傛灉鏄湞鍚戝鏂圭悆闂ㄦ柟鍚戯紝浠峰€奸珮
-    // 杩欓噷鏄竴涓熀纭€瀹炵幇锛屼綘鍙互鏍规嵁绛栫暐闇€瑕佷慨鏀?
+    // Simple heuristic: directions toward the opponent goal are more valuable.
+    // This is a baseline implementation and can be refined by strategy.
     auto fd = config->fieldDimensions;
     double goalDir = atan2(0.0 - data->robotPoseToField.y, fd.length/2.0 - data->robotPoseToField.x);
     double diff = fabs(toPInPI(dir - goalDir));
 
-    // 瑙掑害鍋忓樊瓒婂皬锛屼环鍊艰秺楂樸€傝寖鍥?[0, 1]
+    // Smaller angular error means higher value. Range [0, 1].
     return max(0.0, 1.0 - diff / M_PI);
 }
 
 /**
- * 璁＄畻褰撳墠鐨勬€ヨ揩搴?
- * 0: 瀹夊叏, 1: 鏈夊▉鑳? 2: 鍗遍櫓
+ * Estimate current threat level.
+ * 0: safe, 1: pressured, 2: dangerous
  */
 double Brain::threatLevel()
 {
-    // 鍩虹瀹炵幇锛氬鏋滄湁鏁屼汉鍦ㄩ檮杩?2绫冲唴)锛屽垯璁や负鏈夊▉鑳?
+    // Baseline implementation: nearby opponents imply more danger.
     double minOpponentDist = 100.0;
     auto robots = data->getRobots();
     for(const auto& r : robots) {
@@ -3739,33 +3741,33 @@ double Brain::threatLevel()
 }
 
 /**
- * 鍒ゆ柇鏄惁閫傚悎瀹氬悜韪㈢悆
+ * Check whether directional kicking is suitable.
  */
 bool Brain::isAngleGoodForDirectionalKick(double goalPostMargin)
 {
-    // 澶嶇敤閫氱敤鐨勮搴﹀垽鏂€昏緫锛屾垨鑰呮坊鍔犵壒瀹氶€昏緫
+    // Reuse the generic angle check for kicking.
     return isAngleGood(goalPostMargin, "kick");
 }
 
 /**
- * 妫€鏌ュ墠鏂规墖褰㈠尯鍩熸槸鍚︽湁闅滅鐗?
+ * Check whether the front sector is free of obstacles.
  */
 bool Brain::isFrontRangeClear(double startAngle, double endAngle, double safeDist, double step)
 {
-    // 閬嶅巻瑙掑害鑼冨洿锛屾鏌ユ瘡涓搴︿笂鐨勬渶杩戦殰纰嶇墿璺濈
+    // Scan the angular range and verify obstacle distance at each step.
     for (double ang = startAngle; ang <= endAngle; ang += step) {
         if (distToObstacle(ang) < safeDist) {
-            return false; // 鍙戠幇闅滅鐗╋紝涓嶇┖闂?
+            return false; // Obstacle found, sector is not clear.
         }
     }
-    return true; // 鍖哄煙鍐呮棤闅滅鐗?
+    return true; // No obstacle found in the sector.
 }
 
 /**
- * 鍙戝竷瑙嗚鏍″噯鍙傛暟
+ * Publish vision calibration parameters.
  */
 /**
- * 鍙戝竷瑙嗚鏍″噯鍙傛暟
+ * Publish vision calibration parameters.
  */
 void Brain::pubCalParamMsg(double pitch, double yaw, double z)
 {
