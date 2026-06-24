@@ -1525,7 +1525,7 @@ bool Brain::speak(string text, bool allowRepeat)
 
 double Brain::msecsSince(rclcpp::Time time) const
 {
-    auto now = this->get_clock()->now();
+    auto now = rclcpp::Clock(time.get_clock_type()).now();
     if (time.get_clock_type() != now.get_clock_type()) return 1e18;
     return (now - time).nanoseconds() / 1e6;
 }
