@@ -59,8 +59,8 @@ set(BRAIN_NODE_SOURCES
   src/robot_client.cpp
 )
 
-add_library(brain_locator ${BRAIN_LOCATOR_SOURCES})
-add_library(brain_decision ${BRAIN_DECISION_SOURCES})
+add_library(brain_locator STATIC ${BRAIN_LOCATOR_SOURCES})
+add_library(brain_decision STATIC ${BRAIN_DECISION_SOURCES})
 add_executable(brain_node ${BRAIN_NODE_SOURCES})
 
 # otherwise connot find msg in same pkg 
