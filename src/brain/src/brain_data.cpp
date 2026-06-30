@@ -30,7 +30,7 @@ vector<FieldMarker> BrainData::getMarkersForLocator()
         auto y = markings[i].posToRobot.y;
         auto confidence = markings[i].confidence;
 
-        char markerType;
+        char markerType = '\0'; // 初始化, 避免未知 label 时未初始化值进入粒子滤波
         if (label == "LCross")
             markerType = 'L';
         else if (label == "TCross")
@@ -39,6 +39,8 @@ vector<FieldMarker> BrainData::getMarkersForLocator()
             markerType = 'X';
         else if (label == "PenaltyPoint")
             markerType = 'P';
+        else
+            continue; // 未知 label 跳过, 不塞入定位器
 
         res.push_back(FieldMarker{markerType, x, y, confidence});
     }

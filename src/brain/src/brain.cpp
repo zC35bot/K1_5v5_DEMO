@@ -198,9 +198,13 @@ void Brain::init()
 
 
     auto now = get_clock()->now();
-    for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
-        data->tmStatus[i].isAlive = false;
-        data->tmStatus[i].timeLastCom = now;
+    {
+        // initCommunication() 已启动通信接收线程(在锁内写 tmStatus)，此处初始化写侧同样持锁，避免写-写竞争
+        std::lock_guard<std::mutex> lock(data->brainMutex);
+        for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
+            data->tmStatus[i].isAlive = false;
+            data->tmStatus[i].timeLastCom = now;
+        }
     }
     data->tmLastCmdChangeTime = now;
 
@@ -353,33 +357,38 @@ void Brain::pubKickMsg() {
     if (!data->ballDetected) return;
     brain::msg::Kick kickMsg;
     kickMsg.header.stamp = get_clock()->now();
-    kickMsg.x = data->ball.posToRobot.x;
-    kickMsg.y = data->ball.posToRobot.y;
-    kickMsg.dir = toPInPI(data->kickDir - data->robotPoseToField.theta);
+    {
+        // pubKickMsg(tick 线程) 读 data->ball/robotPoseToField 构造踢球消息，与写侧并发；
+        // 加短锁取一致快照(field2robot 仅读位姿、不加锁)，publish 放锁外避免长时间持锁。
+        std::lock_guard<std::mutex> lock(data->brainMutex);
+        kickMsg.x = data->ball.posToRobot.x;
+        kickMsg.y = data->ball.posToRobot.y;
+        kickMsg.dir = toPInPI(data->kickDir - data->robotPoseToField.theta);
 
-    double goal_x = config->fieldDimensions.length / 2;
-    double goal_y = 0.0;
-    Pose2D goalPose;
-    goalPose.x = goal_x;
-    goalPose.y = goal_y;
-    double ball_x = data->ball.posToField.x;
-    double ball_y = data->ball.posToField.y;
-    double dist = std::sqrt((goal_x - ball_x) * (goal_x - ball_x) + (goal_y - ball_y) * (goal_y - ball_y));
-    dist = std::abs(dist);
-    double power = 0.0;
+        double goal_x = config->fieldDimensions.length / 2;
+        double goal_y = 0.0;
+        Pose2D goalPose;
+        goalPose.x = goal_x;
+        goalPose.y = goal_y;
+        double ball_x = data->ball.posToField.x;
+        double ball_y = data->ball.posToField.y;
+        double dist = std::sqrt((goal_x - ball_x) * (goal_x - ball_x) + (goal_y - ball_y) * (goal_y - ball_y));
+        dist = std::abs(dist);
+        double power = 0.0;
 
-    if (dist > 6.0) {
-        power = 2.0;
-    } else {
-        power = 6.0;
+        if (dist > 6.0) {
+            power = 2.0;
+        } else {
+            power = 6.0;
+        }
+        kickMsg.power = power;
+
+        auto goalPose_r = data->field2robot(goalPose);
+        kickMsg.goal_x = goalPose_r.x;
+        kickMsg.goal_y = goalPose_r.y;
+
+        kickMsg.robot_theta_to_field = data->robotPoseToField.theta;
     }
-    kickMsg.power = power;
-
-    auto goalPose_r = data->field2robot(goalPose);
-    kickMsg.goal_x = goalPose_r.x;
-    kickMsg.goal_y = goalPose_r.y;
-
-    kickMsg.robot_theta_to_field = data->robotPoseToField.theta;
 
     pubKickBall->publish(kickMsg);
 }
@@ -502,7 +511,11 @@ void Brain::handleCooperation() {
             int tmId = i + 1;
             if (tmId == config->playerId) continue;
 
-            auto tmStatus = data->tmStatus[i];
+            TMStatus tmStatus;
+            {
+                std::lock_guard<std::mutex> lock(data->brainMutex);
+                tmStatus = data->tmStatus[i];
+            }
             log->setTimeNow();
             auto color = 0x00FFFFFF;
             if (!tmStatus.isAlive) color = 0x006666FF;
@@ -533,6 +546,7 @@ void Brain::handleCooperation() {
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
         if (i == selfIdx) continue;
 
+        std::lock_guard<std::mutex> lock(data->brainMutex);
         if (
             data->penalty[i] != PENALTY_NONE
             || msecsSince(data->tmStatus[i].timeLastCom) > COM_TIMEOUT
@@ -560,7 +574,11 @@ void Brain::handleCooperation() {
     double minRange = 1e6;
     log_(format("Find ball info among %d alive TMs", aliveTmIdxs.size()));
     for (int i = 0; i < aliveTmIdxs.size(); i++) {
-        auto status = data->tmStatus[aliveTmIdxs[i]];
+        TMStatus status;
+        {
+            std::lock_guard<std::mutex> lock(data->brainMutex);
+            status = data->tmStatus[aliveTmIdxs[i]];
+        }
         log_(format("TM %d, ballDetected: %d, ballRange: %.1f", i + 1, status.ballDetected, status.ballRange));
         if (status.ballDetected && status.ballRange < minRange) {
             log_(format("tm ball range(%.1f) < minRange(%.1f)", status.ballRange, minRange));
@@ -576,7 +594,10 @@ void Brain::handleCooperation() {
     }
     if (trustedTMIdx >= 0) {
         log_(format("Reliable tm ball found. PlayerID = %d", trustedTMIdx + 1));
-        data->tmBall.posToField = data->tmStatus[trustedTMIdx].ballPosToField;
+        {
+            std::lock_guard<std::mutex> lock(data->brainMutex);
+            data->tmBall.posToField = data->tmStatus[trustedTMIdx].ballPosToField;
+        }
         updateRelativePos(data->tmBall);
 
         tree->setEntry<bool>("tm_ball_pos_reliable", true);
@@ -679,7 +700,12 @@ void Brain::handleCooperation() {
         return role_manager::isFrontfieldId(frontfieldIds, playerId);
     };
     for (int tmIdx : aliveTmIdxs) {
-        auto tmStatus = data->tmStatus[tmIdx];
+        TMStatus tmStatus;
+        {
+            // 读侧加 brainMutex 锁内快照，避免与通信线程对 tmStatus(含 std::string role) 的跨线程撕裂读
+            std::lock_guard<std::mutex> lock(data->brainMutex);
+            tmStatus = data->tmStatus[tmIdx];
+        }
         if (tmStatus.role == "goal_keeper") continue;
         if (tmStatus.cost < tmMinCost) tmMinCost = tmStatus.cost;
         if (
@@ -714,7 +740,12 @@ void Brain::handleCooperation() {
     int remoteCaptainStrikerId = 0;
     int remoteCaptainSupporterId = 0;
     for (int tmIdx : aliveTmIdxs) {
-        const auto &tmStatus = data->tmStatus[tmIdx];
+        TMStatus tmStatus;
+        {
+            // 读侧加 brainMutex 锁内快照，避免与通信线程裸读 tmStatus
+            std::lock_guard<std::mutex> lock(data->brainMutex);
+            tmStatus = data->tmStatus[tmIdx];
+        }
         if (tmStatus.role != "goal_keeper" || !tmStatus.isAlive || tmStatus.isFallen) continue;
         if (tmStatus.captainDecisionId <= 0) continue;
         if (!isFrontfieldId(tmStatus.assignedStrikerId)) continue;
@@ -853,6 +884,9 @@ void Brain::updateObstacleMemory() {
         (get_parameter("obstacle_avoidance.enable_freekick_avoid").as_bool() && isFreekickStartPlacing())
         || tree->getEntry<string>("gc_game_state") == "READY"
     ) {
+        // tick 线程读 data->ball(含 std::string) 整体拷贝，与 detectionsCallback 写侧并发；
+        // 仅对拷贝加短锁，防撕裂/UAF。getObstacles/setObstacles 用各自独立锁，不在此锁内调用。
+        std::lock_guard<std::mutex> lock(data->brainMutex);
         obs_new.push_back(data->ball);
     }
 
@@ -862,32 +896,42 @@ void Brain::updateObstacleMemory() {
 
 void Brain::updateBallMemory()
 {
-    double secs = max(0.0, msecsSince(data->ball.timePoint) / 1000.0);
-
     double ballMemTimeout;
     get_parameter("strategy.ball_memory_timeout", ballMemTimeout);
 
-    const double rawBallConfidence = max(0.0, data->ball.confidence);
-    if (config->ballConfidenceDecayRate > 1e-6) {
-        const double decayPerSec = 100.0 / config->ballConfidenceDecayRate;
-        data->ballEffectiveConfidence = max(0.0, rawBallConfidence - secs * decayPerSec);
-    } else {
-        data->ballEffectiveConfidence = rawBallConfidence;
+    // tick 线程读/改 data->ball、data->tmBall、ballEffectiveConfidence，与 detectionsCallback 写侧并发。
+    // 共享数据访问统一置于 brainMutex 下；tree->setEntry/get_parameter 等留在临界区外，避免在持锁路径上嵌套其它锁。
+    // updateRelativePos 上移到临界区内不改变结果(其只读位姿、写回 ball/tmBall 自身)。
+    bool ballLocationKnown;
+    double ballRange;
+    {
+        std::lock_guard<std::mutex> lock(data->brainMutex);
+
+        double secs = max(0.0, msecsSince(data->ball.timePoint) / 1000.0);
+        const double rawBallConfidence = max(0.0, data->ball.confidence);
+        if (config->ballConfidenceDecayRate > 1e-6) {
+            const double decayPerSec = 100.0 / config->ballConfidenceDecayRate;
+            data->ballEffectiveConfidence = max(0.0, rawBallConfidence - secs * decayPerSec);
+        } else {
+            data->ballEffectiveConfidence = rawBallConfidence;
+        }
+
+        if (secs > ballMemTimeout) {
+            data->ballEffectiveConfidence = 0.0;
+        }
+
+        ballLocationKnown = data->ballEffectiveConfidence > 0.0;
+
+        updateRelativePos(data->ball);
+        updateRelativePos(data->tmBall);
+        ballRange = data->ball.range;
     }
 
-    if (secs > ballMemTimeout) {
-        data->ballEffectiveConfidence = 0.0;
-    }
-
-    const bool ballLocationKnown = data->ballEffectiveConfidence > 0.0;
     tree->setEntry<bool>("ball_location_known", ballLocationKnown);
     if (!ballLocationKnown) {
         tree->setEntry<bool>("ball_out", false);
     }
-
-    updateRelativePos(data->ball);
-    updateRelativePos(data->tmBall);
-    tree->setEntry<double>("ball_range", data->ball.range);
+    tree->setEntry<double>("ball_range", ballRange);
 
 
 
@@ -1052,7 +1096,12 @@ void Brain::updateCostToKick() {
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
         if (i == selfIdx) continue;
 
-        auto status = data->tmStatus[i];
+        TMStatus status;
+        {
+            // 读侧加 brainMutex 锁内快照，避免与通信线程裸读 tmStatus
+            std::lock_guard<std::mutex> lock(data->brainMutex);
+            status = data->tmStatus[i];
+        }
         if (!status.isAlive) continue;
 
         double theta_tm2ball = atan2(status.ballPosToField.y - status.robotPoseToField.y, status.ballPosToField.x - status.robotPoseToField.x);
@@ -1121,7 +1170,12 @@ bool Brain::isPrimaryStriker() {
     auto myIdx = config->playerId - 1;
 
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
-        auto status = data->tmStatus[i];
+        TMStatus status;
+        {
+            // 读侧加 brainMutex 锁内快照，避免与通信线程裸读 tmStatus(含 std::string role)
+            std::lock_guard<std::mutex> lock(data->brainMutex);
+            status = data->tmStatus[i];
+        }
         if (data->penalty[i] == PENALTY_NONE && status.isAlive && status.role == "striker") {
             firstAliveStrikerIdx = i;
             break;
@@ -1404,30 +1458,36 @@ bool Brain::isDefensing() {
 void Brain::calibrateOdom(double x, double y, double theta)
 {
 
-    double x_or, y_or, theta_or; // or = odom to robot
-    x_or = -cos(data->robotPoseToOdom.theta) * data->robotPoseToOdom.x - sin(data->robotPoseToOdom.theta) * data->robotPoseToOdom.y;
-    y_or = sin(data->robotPoseToOdom.theta) * data->robotPoseToOdom.x - cos(data->robotPoseToOdom.theta) * data->robotPoseToOdom.y;
-    theta_or = -data->robotPoseToOdom.theta;
+    {
+        // calibrateOdom(tick 线程，经行为树节点调用) 写 odomToField/robotPoseToField/ball.posToField，
+        // 与 odometerCallback、detectionsCallback 并发；对位姿/球场坐标重算加锁(transCoord 纯计算，无嵌套锁)。
+        std::lock_guard<std::mutex> lock(data->brainMutex);
+
+        double x_or, y_or, theta_or; // or = odom to robot
+        x_or = -cos(data->robotPoseToOdom.theta) * data->robotPoseToOdom.x - sin(data->robotPoseToOdom.theta) * data->robotPoseToOdom.y;
+        y_or = sin(data->robotPoseToOdom.theta) * data->robotPoseToOdom.x - cos(data->robotPoseToOdom.theta) * data->robotPoseToOdom.y;
+        theta_or = -data->robotPoseToOdom.theta;
 
 
-    transCoord(x_or, y_or, theta_or,
-               x, y, theta,
-               data->odomToField.x, data->odomToField.y, data->odomToField.theta);
+        transCoord(x_or, y_or, theta_or,
+                   x, y, theta,
+                   data->odomToField.x, data->odomToField.y, data->odomToField.theta);
 
 
-    transCoord(
-        data->robotPoseToOdom.x, data->robotPoseToOdom.y, data->robotPoseToOdom.theta,
-        data->odomToField.x, data->odomToField.y, data->odomToField.theta,
-        data->robotPoseToField.x, data->robotPoseToField.y, data->robotPoseToField.theta);
+        transCoord(
+            data->robotPoseToOdom.x, data->robotPoseToOdom.y, data->robotPoseToOdom.theta,
+            data->odomToField.x, data->odomToField.y, data->odomToField.theta,
+            data->robotPoseToField.x, data->robotPoseToField.y, data->robotPoseToField.theta);
 
 
-    double placeHolder;
-    // ball
-    transCoord(
-        data->ball.posToRobot.x, data->ball.posToRobot.y, 0,
-        data->robotPoseToField.x, data->robotPoseToField.y, data->robotPoseToField.theta,
-        data->ball.posToField.x, data->ball.posToField.y, placeHolder
-    );
+        double placeHolder;
+        // ball
+        transCoord(
+            data->ball.posToRobot.x, data->ball.posToRobot.y, 0,
+            data->robotPoseToField.x, data->robotPoseToField.y, data->robotPoseToField.theta,
+            data->ball.posToField.x, data->ball.posToField.y, placeHolder
+        );
+    }
 
     // robots
     auto robots = data->getRobots();
@@ -1441,18 +1501,24 @@ void Brain::calibrateOdom(double x, double y, double theta)
     for (int i = 0; i < goalposts.size(); i++) {
         updateFieldPos(goalposts[i]);
     }
+    data->setGoalposts(goalposts); // 重算后写回, 与 setRobots 对称, 避免重定位后仍是旧场地坐标
 
     // markers
     auto markings = data->getMarkings();
     for (int i = 0; i < markings.size(); i++) {
         updateFieldPos(markings[i]);
     }
+    data->setMarkings(markings); // 重算后写回, 与 setRobots 对称, 避免重定位后仍是旧场地坐标
 
     // relog
     log->setTimeNow();
     // logVisionBox(get_clock()->now());
     vector<GameObject> gameObjects = {};
-    if(data->ballDetected) gameObjects.push_back(data->ball);
+    {
+        // 读 data->ball 拷贝用于重日志，加短锁防与 detectionsCallback 写侧撕裂
+        std::lock_guard<std::mutex> lock(data->brainMutex);
+        if(data->ballDetected) gameObjects.push_back(data->ball);
+    }
     for (int i = 0; i < markings.size(); i++) gameObjects.push_back(markings[i]);
     for (int i = 0; i < robots.size(); i++) gameObjects.push_back(robots[i]);
     for (int i = 0; i < goalposts.size(); i++) gameObjects.push_back(goalposts[i]);
@@ -1535,10 +1601,10 @@ rclcpp::Time Brain::timePointFromHeader(std_msgs::msg::Header header) {
     // NOTE: in practice this seems to use ROS_TIME regardless of use_sim_time.
     auto sec = stamp.sec;
     auto nanosec = stamp.nanosec;
-    if (sec <= 0 || nanosec <= 0) {
+    if (sec <= 0) {
+        prtErr(format("Invalid time: sec: %d nanosec: %u", sec, nanosec));
         sec = 1;
-        nanosec = 1;
-        prtErr(format("Negative time: sec: %d nanosec: %d"));
+        nanosec = 0;
     }
     return rclcpp::Time(sec, nanosec, RCL_ROS_TIME); // should not crash
     // return rclcpp::Time(stamp.sec, stamp.nanosec, RCL_ROS_TIME);  // should crash sometimes
@@ -1759,13 +1825,16 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
         "PLAY",    // normal match play
         "END"      // match finished
     };
-    string gameState = gameStateMap[static_cast<int>(msg.state)];
+    const int stateIdx = static_cast<int>(msg.state);
+    string gameState = (stateIdx >= 0 && stateIdx < static_cast<int>(gameStateMap.size()))
+        ? gameStateMap[stateIdx] : "INITIAL";
     tree->setEntry<string>("gc_game_state", gameState);
     bool isKickOffSide = (msg.kick_off_team == config->teamId); // whether our side has kickoff
     tree->setEntry<bool>("gc_is_kickoff_side", isKickOffSide);
 
     // Parse the secondary game state.
     string gameSubStateType;
+    data->isDirectShoot = false; // 统一先复位, 仅 direct/penalty/goal kick (case 4/6/8) 置 true, 防止间接任意球等状态残留 true
     switch (static_cast<int>(msg.secondary_state)) {
         case 0:
             gameSubStateType = "NONE";
@@ -1814,7 +1883,9 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
             break;
     }
     vector<string> gameSubStateMap = {"STOP", "GET_READY", "SET"}; // STOP -> GET_READY -> SET within sub-state flow
-    string gameSubState = gameSubStateMap[static_cast<int>(msg.secondary_state_info[1])];
+    const int subStateIdx = static_cast<int>(msg.secondary_state_info[1]);
+    string gameSubState = (subStateIdx >= 0 && subStateIdx < static_cast<int>(gameSubStateMap.size()))
+        ? gameSubStateMap[subStateIdx] : "STOP";
     tree->setEntry<string>("gc_game_sub_state_type", gameSubStateType);
     tree->setEntry<string>("gc_game_sub_state", gameSubState);
     bool isSubStateKickOffSide = (static_cast<int>(msg.secondary_state_info[0]) == config->teamId); // whether our side owns the current secondary restart
@@ -1889,7 +1960,10 @@ void Brain::gameControlCallback(const game_controller_interface::msg::GameContro
 
 void Brain::detectionsCallback(const vision_interface::msg::Detections &msg)
 {
-    // std::lock_guard<std::mutex> guard(data->brainMutex);
+    // 取消注释：detectionsCallback 运行在执行器线程，与 main.cpp 独立 tick 线程并发。
+    // 整段加锁，使写侧 detectProcessBalls(data->ball=) 等与 tick 读侧共用同一把 brainMutex 串行化。
+    // 注意：本段已持锁，被调函数(detectProcessBalls 等)内部不得再次加 brainMutex(非递归锁会死锁)。
+    std::lock_guard<std::mutex> guard(data->brainMutex);
 
     // auto detection_time_stamp = msg.header.stamp;
     // rclcpp::Time timePoint(detection_time_stamp.sec, detection_time_stamp.nanosec);
@@ -2100,15 +2174,21 @@ void Brain::fieldLineCallback(const vision_interface::msg::LineSegments &msg)
 void Brain::odometerCallback(const booster_interface::msg::Odometer &msg)
 {
 
-    data->robotPoseToOdom.x = msg.x * config->robotOdomFactor;
-    data->robotPoseToOdom.y = msg.y * config->robotOdomFactor;
-    data->robotPoseToOdom.theta = msg.theta;
+    {
+        // odometerCallback(执行器线程) 写 robotPoseToOdom/odomToField/robotPoseToField，
+        // 与 tick 线程读侧并发。仅对写区加短锁(transCoord 为纯计算，不再加锁，无死锁)。
+        std::lock_guard<std::mutex> lock(data->brainMutex);
 
-    // Update robot pose in field coordinates from odom data.
-    transCoord(
-        data->robotPoseToOdom.x, data->robotPoseToOdom.y, data->robotPoseToOdom.theta,
-        data->odomToField.x, data->odomToField.y, data->odomToField.theta,
-        data->robotPoseToField.x, data->robotPoseToField.y, data->robotPoseToField.theta);
+        data->robotPoseToOdom.x = msg.x * config->robotOdomFactor;
+        data->robotPoseToOdom.y = msg.y * config->robotOdomFactor;
+        data->robotPoseToOdom.theta = msg.theta;
+
+        // Update robot pose in field coordinates from odom data.
+        transCoord(
+            data->robotPoseToOdom.x, data->robotPoseToOdom.y, data->robotPoseToOdom.theta,
+            data->odomToField.x, data->odomToField.y, data->odomToField.theta,
+            data->robotPoseToField.x, data->robotPoseToField.y, data->robotPoseToField.theta);
+    }
 
     // Publish TF transform.
     geometry_msgs::msg::TransformStamped transform;
@@ -2248,8 +2328,11 @@ void Brain::recoveryStateCallback(const booster_interface::msg::RawBytesMsg &msg
     try
     {
         const std::vector<unsigned char>& buffer = msg.msg;
+        if (buffer.size() < sizeof(RobotRecoveryStateData)) {
+            return;
+        }
         RobotRecoveryStateData recoveryState;
-        memcpy(&recoveryState, buffer.data(), buffer.size());
+        memcpy(&recoveryState, buffer.data(), sizeof(recoveryState));
 
         vector<RobotRecoveryState> recoveryStateMap = {
             RobotRecoveryState::IS_READY,
@@ -2257,7 +2340,11 @@ void Brain::recoveryStateCallback(const booster_interface::msg::RawBytesMsg &msg
             RobotRecoveryState::HAS_FALLEN,
             RobotRecoveryState::IS_GETTING_UP
         };
-        this->data->recoveryState = recoveryStateMap[static_cast<int>(recoveryState.state)];
+        const int stateIdx = static_cast<int>(recoveryState.state);
+        if (stateIdx < 0 || stateIdx >= static_cast<int>(recoveryStateMap.size())) {
+            return;
+        }
+        this->data->recoveryState = recoveryStateMap[stateIdx];
         this->data->isRecoveryAvailable = static_cast<bool>(recoveryState.is_recovery_available);
         this->data->currentRobotModeIndex = static_cast<int>(recoveryState.current_planner_index);
 
@@ -2540,6 +2627,9 @@ vector<GameObject> Brain::getGameObjects(const vision_interface::msg::Detections
         //     gObj.posToRobot.y = obj.position_projection[1];
         // } // Note: kept only as reference.
 
+        // 取 position_projection[0]/[1] 前校验长度, 不足则跳过该对象, 避免越界读 UB
+        if (obj.position_projection.size() < 2) continue;
+
         // Use projection-based position directly.
         gObj.posToRobot.x = obj.position_projection[0];
         gObj.posToRobot.y = obj.position_projection[1];
@@ -2801,6 +2891,12 @@ void Brain::detectProcessVisionBox(const vision_interface::msg::Detections &msg)
     // rclcpp::Time timePoint(detection_time_stamp.sec, detection_time_stamp.nanosec);
     auto timePoint = timePointFromHeader(msg.header);
 
+    // 后续按固定下标访问到 corner_pos[9], 长度不足直接返回, 避免越界读
+    if (msg.corner_pos.size() < 10) {
+        prtWarn(format("detectProcessVisionBox: corner_pos size %zu < 10, skip", msg.corner_pos.size()));
+        return;
+    }
+
     // Process and record the current vision box.
     VisionBox vbox;
     vbox.timePoint = timePoint;
@@ -2821,8 +2917,11 @@ void Brain::detectProcessVisionBox(const vision_interface::msg::Detections &msg)
             (i == 0 && crossProduct(v[5], v[6]) < 0)
             || (i == 1 && crossProduct(v[3], v[4]) < 0)
         ){
-            vbox.posToRobot[2 * i] = -ox / fabs(ox) * VISION_LIMIT;
-            vbox.posToRobot[2 * i + 1] = -oy / fabs(oy) * VISION_LIMIT;
+            // 用符号函数替代 -ox/fabs(ox), 避免 ox/oy==0 时除零产生 NaN
+            double sx = (ox > 0) ? 1.0 : (ox < 0 ? -1.0 : 0.0);
+            double sy = (oy > 0) ? 1.0 : (oy < 0 ? -1.0 : 0.0);
+            vbox.posToRobot[2 * i] = -sx * VISION_LIMIT;
+            vbox.posToRobot[2 * i + 1] = -sy * VISION_LIMIT;
         }
     }
 
@@ -3159,7 +3258,7 @@ void Brain::updateRelativePos(GameObject &obj) {
     obj.posToRobot.y = pr.y;
     obj.range = norm(obj.posToRobot.x, obj.posToRobot.y);
     obj.yawToRobot = atan2(obj.posToRobot.y, obj.posToRobot.x);
-    obj.pitchToRobot = asin(config->robotHeight / obj.range);
+    obj.pitchToRobot = atan2(config->robotHeight, std::max(obj.range, 1e-6));
 }
 
 void Brain::updateFieldPos(GameObject &obj) {
@@ -3172,7 +3271,7 @@ void Brain::updateFieldPos(GameObject &obj) {
     obj.posToField.y = pf.y;
     obj.range = norm(obj.posToRobot.x, obj.posToRobot.y);
     obj.yawToRobot = atan2(obj.posToRobot.y, obj.posToRobot.x);
-    obj.pitchToRobot = asin(config->robotHeight / obj.range);
+    obj.pitchToRobot = atan2(config->robotHeight, std::max(obj.range, 1e-6));
 }
 
 void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
@@ -3285,6 +3384,8 @@ void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
                     {
                         int grid_x = static_cast<int>((point_robot(0) - x_min) / grid_size);
                         int grid_y = static_cast<int>((point_robot(1) - y_min) / grid_size);
+                        // 浮点截断可能使下标等于 count, 越界写堆; 越界则跳过
+                        if (grid_x < 0 || grid_x >= grid_x_count || grid_y < 0 || grid_y >= grid_y_count) continue;
                         grid_occupied[grid_x][grid_y] += 1;
                     }
                 }
@@ -3616,6 +3717,12 @@ string Brain::getComLogString() {
     int aliveCnt = 0;
     int selfIdx = config->playerId - 1;
     vector<int> onFieldIdxs = {};
+    // 读侧加 brainMutex 锁内整体快照队友状态，后续仅读 tmSnap，避免与通信线程裸读
+    TMStatus tmSnap[HL_MAX_NUM_PLAYERS];
+    {
+        std::lock_guard<std::mutex> lock(data->brainMutex);
+        for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) tmSnap[i] = data->tmStatus[i];
+    }
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; i++) {
         if (i == selfIdx) continue;
 
@@ -3624,7 +3731,7 @@ string Brain::getComLogString() {
             onFieldIdxs.push_back(i);
         }
 
-        if (data->tmStatus[i].isAlive) aliveCnt += 1;
+        if (tmSnap[i].isAlive) aliveCnt += 1;
     }
     ss << CYAN_CODE << "COM: " << "\n";
     ss << "Teammates: OnField: " << onFieldCnt << "[";
@@ -3649,7 +3756,7 @@ string Brain::getComLogString() {
     // Teammates info
     for (int i = 0; i < onFieldIdxs.size(); i++) {
         int idx = onFieldIdxs[i];
-        auto status = data->tmStatus[idx];
+        auto status = tmSnap[idx]; // 读自锁内快照
         ss << "P" << idx + 1 << "[";
         if (status.isAlive)
             ss << GREEN_CODE << "*" << CYAN_CODE;

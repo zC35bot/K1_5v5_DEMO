@@ -51,7 +51,9 @@ inline std::string gen_timestamped_filename(const std::string& dir, const std::s
     auto filename = gen_timestamp_str();
     if (addUUID) filename += ("_" + gen_uuid());
     filename += ext;
-    
+
+    if (dir.empty()) return filename; // dir 为空时避免 dir.back() 的 UB, 仅返回文件名(含 ext)
+
     if (dir.back() == '/') return dir + filename;
     
     // else

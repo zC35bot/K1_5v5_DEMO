@@ -261,6 +261,13 @@ void BrainConfig::handle()
     }
     calcMapLines();
     calcMapMarkings();
+
+    if (rerunLogImgInterval < 1) {
+        rerunLogImgInterval = 1;
+    }
+    if (rerunLogMaxFileMins <= 0) {
+        rerunLogMaxFileMins = 1;
+    }
 }
 
 void BrainConfig::print(ostream &os)

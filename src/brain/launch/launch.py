@@ -32,8 +32,10 @@ def handle_configuration(context, *args, **kwargs):
         print(f"[brain launch] optional local override '{vision_config_local_file}' not present")
 
     config_path = os.path.join(os.path.dirname(__file__), '../config')
-    config_file = os.path.join(config_path, 'config.yaml') 
-    config_local_file = os.path.join(config_path, 'config_local.yaml') 
+    config_file = os.path.join(config_path, 'config.yaml')
+    config_local_file = os.path.join(config_path, 'config_local.yaml')
+    if not os.path.isfile(config_local_file):
+        print(f"[brain launch] optional local override '{config_local_file}' not present")
 
     behavior_trees_dir = os.path.join(os.path.dirname(__file__), '../behavior_trees')
     def make_tree_path(name):
@@ -77,11 +79,7 @@ def handle_configuration(context, *args, **kwargs):
             package ='brain',
             executable='brain_node',
             output='screen',
-            parameters=[
-                config_file,
-                config_local_file,
-                config
-            ]
+            parameters=([config_file, config_local_file] if os.path.isfile(config_local_file) else [config_file]) + [config]
         )
     ]
 

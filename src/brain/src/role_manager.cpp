@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 
 #include "brain.h"
 
@@ -31,7 +32,12 @@ double calcCaptainBallCost(const Brain *brain, int playerId, bool isSelf)
 
     int idx = playerId - 1;
     if (idx < 0 || idx >= HL_MAX_NUM_PLAYERS) return 1e9;
-    const auto &status = brain->data->tmStatus[idx];
+    // 读侧加 brainMutex 锁内拷贝队友状态，避免与通信线程裸读 tmStatus
+    TMStatus status;
+    {
+        std::lock_guard<std::mutex> lock(brain->data->brainMutex);
+        status = brain->data->tmStatus[idx];
+    }
     if (!status.isAlive) return notAlivePenalty;
     if (status.isFallen) return fallenPenalty;
     if (status.robotState == ROBOT_STATE_FIND_BALL || !status.ballLocationKnown) return lostBallPenalty + status.cost;
@@ -48,8 +54,13 @@ std::vector<int> collectFrontfieldIds(
     const int selfId = brain->config->playerId;
     if (selfRole != "goal_keeper" && brain->data->tmImAlive) ids.push_back(selfId);
     for (int idx : aliveTmIdxs) {
-        const auto &tmStatus = brain->data->tmStatus[idx];
-        if (tmStatus.role == "goal_keeper") continue;
+        // 读侧加 brainMutex 锁内拷贝 role 字符串，避免与通信线程对 std::string 的跨线程撕裂读
+        std::string tmRole;
+        {
+            std::lock_guard<std::mutex> lock(brain->data->brainMutex);
+            tmRole = brain->data->tmStatus[idx].role;
+        }
+        if (tmRole == "goal_keeper") continue;
         ids.push_back(idx + 1);
     }
     std::sort(ids.begin(), ids.end());
@@ -167,7 +178,12 @@ ActivePassContext findActivePassContext(const Brain *brain)
     );
 
     for (int i = 0; i < HL_MAX_NUM_PLAYERS; ++i) {
-        const auto &status = brain->data->tmStatus[i];
+        // 读侧加 brainMutex 锁内拷贝队友状态，避免与通信线程裸读 tmStatus
+        TMStatus status;
+        {
+            std::lock_guard<std::mutex> lock(brain->data->brainMutex);
+            status = brain->data->tmStatus[i];
+        }
         if (!status.isAlive) continue;
         if (brain->msecsSince(status.timeLastCom) > 1500.0) continue;
         consider(
@@ -213,7 +229,12 @@ bool getPassPartnerStatus(
 
     int idx = playerId - 1;
     if (idx < 0 || idx >= HL_MAX_NUM_PLAYERS) return false;
-    const auto &status = brain->data->tmStatus[idx];
+    // 读侧加 brainMutex 锁内拷贝队友状态，避免与通信线程裸读 tmStatus
+    TMStatus status;
+    {
+        std::lock_guard<std::mutex> lock(brain->data->brainMutex);
+        status = brain->data->tmStatus[idx];
+    }
     if (!status.isAlive) return false;
     if (brain->msecsSince(status.timeLastCom) > 1500.0) return false;
     if (

@@ -181,6 +181,11 @@ void SphereFitting(std::vector<float> &sphere, float &confidence, const pcl::Poi
     sphere = {0, 0, 0, 0};
     confidence = 0;
 
+    // 空云会使下方 0/0=NaN 绕过 confidence 守卫并越界访问 values[3]
+    if (cloud->points.empty()) {
+        return;
+    }
+
     pcl::SACSegmentation<pcl::PointXYZRGB> seg;
     pcl::ModelCoefficients coefficients;
     pcl::PointIndices inliers;
@@ -198,6 +203,11 @@ void SphereFitting(std::vector<float> &sphere, float &confidence, const pcl::Poi
         return;
     }
 
+    // 球模型需 4 个系数(x,y,z,r)，分割失败时 values 可能不足，访问 values[3] 越界
+    if (coefficients.values.size() < 4) {
+        confidence = 0;
+        return;
+    }
     sphere = coefficients.values;
     if (std::abs(coefficients.values[3] - radius_threshold) > 0.02) {
         std::cout << "raidus " << coefficients.values[3] << " higher than expected " << radius_threshold << std::endl;

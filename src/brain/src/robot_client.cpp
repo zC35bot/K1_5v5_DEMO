@@ -324,7 +324,7 @@ int RobotClient::moveToPoseOnField(double tx, double ty, double ttheta, double l
     double targetAngle = atan2(target_r.y, target_r.x);
     double targetDist = norm(target_r.x, target_r.y);
 
-    double vx, vy, vtheta;
+    double vx = 0, vy = 0, vtheta = 0;
 
     // 已经到达目标?
     if (
@@ -709,9 +709,11 @@ double RobotClient::msecsToCollide(double vx, double vy, double vtheta, double m
     double y0 = brain->data->robotPoseToField.y;
     double robotTheta = brain->data->robotPoseToField.theta;
 
+    const double vxField = vx * cos(robotTheta) - vy * sin(robotTheta);
+    const double vyField = vx * sin(robotTheta) + vy * cos(robotTheta);
     Line path = {
         x0, y0,
-        x0 + vx * cos(robotTheta) * maxTime / 1000, y0 + vy * sin(robotTheta) * maxTime / 1000
+        x0 + vxField * maxTime / 1000, y0 + vyField * maxTime / 1000
     };
 
     double minDist = 1e6;

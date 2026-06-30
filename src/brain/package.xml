@@ -26,6 +26,11 @@
   <depend>tf2_ros</depend>
   <depend>tf2_geometry_msgs</depend>
 
+  <!-- 补齐与 CMakeLists find_package 对齐的系统依赖（Eigen3/OpenCV/yaml-cpp） -->
+  <depend>eigen</depend>
+  <depend>libopencv-dev</depend>
+  <depend>yaml-cpp</depend>
+
   <!-- 添加自定义消息 -->
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
   <exec_depend>rosidl_default_runtime</exec_depend>

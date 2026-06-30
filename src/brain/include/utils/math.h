@@ -156,7 +156,10 @@ inline double angleBetweenLines(const Line l1, const Line l2) {
     auto normProdut = norm(AB) * norm(CD);
     if (normProdut == 0) return 0.;
 
-    auto angle = acos((innerProduct(AB, CD)) / normProdut);
+    // 夹取 acos 参数到 [-1,1], 防止浮点误差导致近平行/共线时返回 NaN
+    double c = innerProduct(AB, CD) / normProdut;
+    c = std::max(-1.0, std::min(1.0, c));
+    auto angle = acos(c);
     if (angle > M_PI / 2) angle = M_PI - angle;
     
     return angle;

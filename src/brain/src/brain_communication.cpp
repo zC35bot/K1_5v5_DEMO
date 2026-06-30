@@ -351,40 +351,43 @@ void BrainCommunication::unicastCommunication() {
     while (_unicast_communication_flag) {
         cleanupExpiredTeammates();
         TeamCommunicationMsg msg;
-        msg.validation = VALIDATION_COMMUNICATION;
-        msg.communicationId = _team_communication_msg_id++;
-        msg.teamId = brain->config->teamId;
-        msg.playerId = brain->config->playerId;
-        msg.playerRole = brain->tree->getEntry<string>("player_role") == "striker" ? 1 : 2;
-        msg.teamRole = brain->data->tmMyTeamRole;
-        msg.isAlive = brain->data->tmImAlive;
-        msg.isFallen = brain->data->recoveryState == RobotRecoveryState::HAS_FALLEN;
-        msg.isLead = brain->data->tmImLead;
-        msg.ballDetected = brain->data->ballDetected;
-        msg.ballLocationKnown = brain->tree->getEntry<bool>("ball_location_known");
-        msg.ballConfidence = brain->data->ballEffectiveConfidence;
-        msg.ballRange = brain->data->ball.range;
-        msg.cost = brain->data->tmMyCost;
-        msg.ballPosToField = brain->data->ball.posToField;
-        msg.robotPoseToField = brain->data->robotPoseToField;
-        msg.kickDir = brain->data->kickDir;
-        msg.thetaRb = brain->data->robotBallAngleToField;
-        msg.robotState = brain->getRobotStateCode();
-        msg.assignedStrikerId = brain->data->tmAssignedStrikerId;
-        msg.assignedSupporterId = brain->data->tmAssignedSupporterId;
-        msg.captainDecisionId = brain->data->tmCaptainDecisionId;
-        msg.cmdId = brain->data->tmMyCmdId;
-        msg.cmd = brain->data->tmMyCmd;
-        msg.passInitiator = brain->data->tmMyPassInitiator;
-        msg.passState = brain->data->tmMyPassState;
-        msg.passPartnerPlayerId = brain->data->tmMyPassPartnerPlayerId;
-        msg.passSequenceId = brain->data->tmMyPassSequenceId;
-        msg.passReceiveReady = brain->data->tmMyPassReceiveReady;
-        msg.passTakeoverAck = brain->data->tmMyPassTakeoverAck;
-        msg.passOneTwoIntent = brain->data->tmMyPassOneTwoIntent;
-        msg.passTargetPosToField = brain->data->tmMyPassTargetPosToField;
-        msg.oneTwoState = brain->data->tmMyOneTwoState;
-        msg.oneTwoReturnTargetPosToField = brain->data->tmMyOneTwoReturnTargetPosToField;
+        {
+            std::lock_guard<std::mutex> lock(brain->data->brainMutex);
+            msg.validation = VALIDATION_COMMUNICATION;
+            msg.communicationId = _team_communication_msg_id++;
+            msg.teamId = brain->config->teamId;
+            msg.playerId = brain->config->playerId;
+            msg.playerRole = brain->tree->getEntry<string>("player_role") == "striker" ? 1 : 2;
+            msg.teamRole = brain->data->tmMyTeamRole;
+            msg.isAlive = brain->data->tmImAlive;
+            msg.isFallen = brain->data->recoveryState == RobotRecoveryState::HAS_FALLEN;
+            msg.isLead = brain->data->tmImLead;
+            msg.ballDetected = brain->data->ballDetected;
+            msg.ballLocationKnown = brain->tree->getEntry<bool>("ball_location_known");
+            msg.ballConfidence = brain->data->ballEffectiveConfidence;
+            msg.ballRange = brain->data->ball.range;
+            msg.cost = brain->data->tmMyCost;
+            msg.ballPosToField = brain->data->ball.posToField;
+            msg.robotPoseToField = brain->data->robotPoseToField;
+            msg.kickDir = brain->data->kickDir;
+            msg.thetaRb = brain->data->robotBallAngleToField;
+            msg.robotState = brain->getRobotStateCode();
+            msg.assignedStrikerId = brain->data->tmAssignedStrikerId;
+            msg.assignedSupporterId = brain->data->tmAssignedSupporterId;
+            msg.captainDecisionId = brain->data->tmCaptainDecisionId;
+            msg.cmdId = brain->data->tmMyCmdId;
+            msg.cmd = brain->data->tmMyCmd;
+            msg.passInitiator = brain->data->tmMyPassInitiator;
+            msg.passState = brain->data->tmMyPassState;
+            msg.passPartnerPlayerId = brain->data->tmMyPassPartnerPlayerId;
+            msg.passSequenceId = brain->data->tmMyPassSequenceId;
+            msg.passReceiveReady = brain->data->tmMyPassReceiveReady;
+            msg.passTakeoverAck = brain->data->tmMyPassTakeoverAck;
+            msg.passOneTwoIntent = brain->data->tmMyPassOneTwoIntent;
+            msg.passTargetPosToField = brain->data->tmMyPassTargetPosToField;
+            msg.oneTwoState = brain->data->tmMyOneTwoState;
+            msg.oneTwoReturnTargetPosToField = brain->data->tmMyOneTwoReturnTargetPosToField;
+        }
         log(format("ImAlive: %d, fallen: %d, ImLead: %d, myCost: %.1f, myState: %s, teamRole: %s, captain[%d] S=%d P=%d, myCmdId: %d, myCmd: %d, pass[%s seq=%d partner=%d ready=%d ack=%d oneTwo=%d/%s]",
             msg.isAlive,
             msg.isFallen,
@@ -568,6 +571,7 @@ void BrainCommunication::spinCommunicationReceiver() {
             msg.passOneTwoIntent,
             oneTwoStateCodeName(msg.oneTwoState).c_str()));
 
+        std::lock_guard<std::mutex> dataLock(brain->data->brainMutex);
         TMStatus &tmStatus = brain->data->tmStatus[tmIdx];
         
         tmStatus.role = msg.playerRole == 1 ? "striker" : "goal_keeper";

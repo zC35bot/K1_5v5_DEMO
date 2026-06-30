@@ -17,6 +17,10 @@ Intrinsics::Intrinsics(const YAML::Node &node) {
     // TODO(SS): fix model type conversion
     model = static_cast<DistortionModel>(node["distortion_model"].as<int>());
     distortion_coeffs = node["distortion_coeffs"].as<std::vector<float>>();
+    // BrownConrady/InverseBrownConrady 的 Project/BackProject 会用到 d[0..4]，少于 5 个系数将越界读
+    if ((model == DistortionModel::kBrownConrady || model == DistortionModel::kInverseBrownConrady) && distortion_coeffs.size() < 5) {
+        throw std::runtime_error("Intrinsics: distortion model requires at least 5 distortion coefficients");
+    }
 }
 
 Intrinsics::Intrinsics(const cv::Mat intr, const std::vector<float> &distortion_coeffs_value, const DistortionModel &model_value) {
@@ -29,6 +33,10 @@ Intrinsics::Intrinsics(const cv::Mat intr, const std::vector<float> &distortion_
     cy = intr.at<float>(1, 2);
     distortion_coeffs = distortion_coeffs_value;
     model = model_value;
+    // 同上：畸变模型需 >=5 个系数，否则投影/反投影越界读 distortion_coeffs[0..4]
+    if ((model == DistortionModel::kBrownConrady || model == DistortionModel::kInverseBrownConrady) && distortion_coeffs.size() < 5) {
+        throw std::runtime_error("Intrinsics: distortion model requires at least 5 distortion coefficients");
+    }
 }
 
 Intrinsics::Intrinsics(float fx_value, float fy_value, float cx_value, float cy_value, const std::vector<float> &distortion_coeffs_value, DistortionModel model_value) {
@@ -38,6 +46,10 @@ Intrinsics::Intrinsics(float fx_value, float fy_value, float cx_value, float cy_
     cy = cy_value;
     distortion_coeffs = distortion_coeffs_value;
     model = model_value;
+    // 同上：畸变模型需 >=5 个系数，否则投影/反投影越界读 distortion_coeffs[0..4]
+    if ((model == DistortionModel::kBrownConrady || model == DistortionModel::kInverseBrownConrady) && distortion_coeffs.size() < 5) {
+        throw std::runtime_error("Intrinsics: distortion model requires at least 5 distortion coefficients");
+    }
 }
 
 cv::Point2f Intrinsics::Project(const cv::Point3f &point) const {
@@ -115,6 +127,7 @@ cv::Point2f Intrinsics::UnDistort(const cv::Point2f &point) const {
     case DistortionModel::kBrownConrady: // TODO(SS): fix this later
     case DistortionModel::kInverseBrownConrady:
         undistorted_point = Project(BackProject(point));
+        break;
     case DistortionModel::kNone:
     default:
         undistorted_point = point;

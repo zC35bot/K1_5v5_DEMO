@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <cstdio> // vsnprintf
 
 using namespace std;
 
@@ -40,12 +41,14 @@ using namespace std;
 #define RESET_CODE "\033[0m"
 
 // C printf style string formatter
+// 加 printf 格式校验; vsprintf -> vsnprintf 防止超长格式串栈溢出
+__attribute__((format(printf, 1, 2)))
 inline string format(const char *str, ...)
 {
     char buf[1024];
     va_list args;
     va_start(args, str);
-    vsprintf(buf, str, args);
+    vsnprintf(buf, sizeof(buf), str, args);
     va_end(args);
     return string(buf);
 }

@@ -25,7 +25,12 @@ int main(int argc, char **argv)
     thread t([&brain]() {
         while (rclcpp::ok()) {
             auto start_time = brain->get_clock()->now();
-            brain->tick();
+            try {
+                brain->tick();
+            } catch (const std::exception &e) {
+                // 捕获 tick() 异常, 避免整进程 terminate, 记录后继续下一拍
+                RCLCPP_ERROR(brain->get_logger(), "Exception in brain->tick(): %s", e.what());
+            }
             auto end_time = brain->get_clock()->now();
             auto duration = (end_time - start_time).nanoseconds() / 1000000.0; // 转换为毫秒
             brain->log->setTimeNow();
@@ -47,7 +52,12 @@ int main(int argc, char **argv)
     
         rclcpp::executors::SingleThreadedExecutor executor;
         executor.add_node(node);
-        executor.spin(); 
+        try {
+            executor.spin();
+        } catch (const std::exception &e) {
+            // 保护 joystick/gameControl 回调线程, 避免回调异常 terminate 进程
+            RCLCPP_ERROR(node->get_logger(), "Exception in ext executor spin: %s", e.what());
+        }
     });
 
     // 使用单线程执行器

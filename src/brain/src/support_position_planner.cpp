@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 
 #include "brain.h"
 #include "utils/math.h"
@@ -17,7 +18,12 @@ bool getPlayerFieldPose(const Brain *brain, int playerId, Pose2D &pose)
 
     int idx = playerId - 1;
     if (idx < 0 || idx >= HL_MAX_NUM_PLAYERS) return false;
-    const auto &status = brain->data->tmStatus[idx];
+    // 读侧加 brainMutex 锁内拷贝队友状态，避免与通信线程裸读 tmStatus(robotPoseToField)
+    TMStatus status;
+    {
+        std::lock_guard<std::mutex> lock(brain->data->brainMutex);
+        status = brain->data->tmStatus[idx];
+    }
     if (!status.isAlive || status.isFallen) return false;
     pose = status.robotPoseToField;
     return true;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <map>
 #include <string>
 
@@ -66,6 +67,7 @@ private:
     Intrinsics intr_;
     Pose p_eye2head_;
     Pose p_headprime2head_;
+    mutable std::mutex headprime_mutex_;
     Pose p_previous_head2base_;
     float z_compensation_ = 0;
     int line_segment_area_threshold_ = 10; // threshold for line segment detection

@@ -187,7 +187,9 @@ std::vector<booster_vision::DetectionRes> YoloV8DetectorONNX::InferenceImpl(cons
             float h = data[3];
 
             // TODO: fix magic number
-            int resize_scales = 2;
+            float resize_scales = (img_width >= img_height)
+                ? img_width / static_cast<float>(model_input_size_.width)
+                : img_height / static_cast<float>(model_input_size_.height);
             int left = int((x - 0.5 * w) * resize_scales);
             int top = int((y - 0.5 * h) * resize_scales);
 

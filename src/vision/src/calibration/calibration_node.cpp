@@ -184,7 +184,8 @@ void CalibrationNode::Init(const std::string cfg_path, bool is_offline, std::str
     if (!is_offline_) {
         camera_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
             intrin_topic, 10,
-            std::bind(&CalibrationNode::CameraInfoCallback, this, std::placeholders::_1));
+            std::bind(&CalibrationNode::CameraInfoCallback, this, std::placeholders::_1),
+            sub_opt_1);
     }
 
     this->get_parameter("board_w", board_w_);
@@ -205,7 +206,9 @@ void CalibrationNode::Init(const std::string cfg_path, bool is_offline, std::str
 
 void CalibrationNode::RunExtrinsicCalibrationProcess(const SyncedDataBlock &data_block) {
     if (!is_offline_ && new_log_path_) {
-        std::string log_root = std::string(std::getenv("HOME")) + "/Workspace/calibration_log/handeye/" + getTimeString();
+        // std::getenv 可能返回 nullptr，std::string(nullptr) 为 UB，判空后回退到 /tmp
+        const char *home_env = std::getenv("HOME");
+        std::string log_root = std::string(home_env ? home_env : "/tmp") + "/Workspace/calibration_log/handeye/" + getTimeString();
         data_logger_->ChangeLogPath(log_root);
         data_logger_->LogYAML(cfg_node_, "vision_local.yaml");
         new_log_path_ = false;
@@ -265,6 +268,11 @@ void CalibrationNode::RunExtrinsicCalibrationProcess(const SyncedDataBlock &data
     }
     case 'c': {
         // calibrate
+        // 少于 8 帧时静默产出错误/单位外参，加最少帧数校验
+        if (cali_data_.size() < 8) {
+            std::cerr << "need >= 8 frames, got " << cali_data_.size() << std::endl;
+            break;
+        }
         std::cout << "start calibration computation!" << std::endl;
         // prepare data for calibration
         std::vector<std::vector<cv::Point3f>> all_corners_3d_;
@@ -337,7 +345,8 @@ void CalibrationNode::RunExtrinsicCalibrationProcess(const SyncedDataBlock &data
                   << p_board2base_best << std::endl;
 
 
-        YAML::Node new_cfg_node = cfg_node_;
+        // 用深拷贝避免与 cfg_node_ 浅拷贝别名，保证下方备份的是原始配置
+        YAML::Node new_cfg_node = YAML::Clone(cfg_node_);
         new_cfg_node["camera"]["extrin"] = p_eye2head_best;
 
         // clear compensation
@@ -449,7 +458,9 @@ void CalibrationNode::RunExtrinsicCalibrationProcess(const SyncedDataBlock &data
 
 void CalibrationNode::RunExtrinsicOffsetCalibrationProcess(const SyncedDataBlock &data_block) {
     if (!is_offline_ && new_log_path_) {
-        std::string log_root = std::string(std::getenv("HOME")) + "/Workspace/calibration_log/offset/" + getTimeString();
+        // std::getenv 可能返回 nullptr，std::string(nullptr) 为 UB，判空后回退到 /tmp
+        const char *home_env = std::getenv("HOME");
+        std::string log_root = std::string(home_env ? home_env : "/tmp") + "/Workspace/calibration_log/offset/" + getTimeString();
         data_logger_->ChangeLogPath(log_root);
         data_logger_->LogYAML(cfg_node_, "vision_local.yaml");
         new_log_path_ = false;
@@ -554,6 +565,11 @@ void CalibrationNode::RunExtrinsicOffsetCalibrationProcess(const SyncedDataBlock
         Pose p_head2head_prime;
 
         std::cout << selected_gt_3ds.size() << " of " << gt_3ds.size() << " points selected for extrinsic offset calibration" << std::endl;
+        // 无匹配点时除以零会产生 NaN/Inf 并写入配置，提前中止
+        if (selected_computed_rays.empty()) {
+            std::cerr << "no valid matched points, abort" << std::endl;
+            break;
+        }
         EyeInHandOffsetCalibration(&euclidian_error,
                                    &p_head2head_prime,
                                    p_eye2head_,
@@ -578,7 +594,8 @@ void CalibrationNode::RunExtrinsicOffsetCalibrationProcess(const SyncedDataBlock
                   << p_eye2head_best << std::endl;
 
         std::string date = getTimeString();
-        YAML::Node new_cfg_node = cfg_node_;
+        // 用深拷贝避免与 cfg_node_ 浅拷贝别名（与 handeye 模式保持一致）
+        YAML::Node new_cfg_node = YAML::Clone(cfg_node_);
         new_cfg_node["camera"]["extrin"] = p_eye2head_best;
         // clear compensation
         new_cfg_node["camera"]["pitch_compensation"] = 0.0;
@@ -789,7 +806,13 @@ cv::Point3f CalculatePositionByIntersection(const Pose &p_eye2base, const cv::Po
 
     cv::Mat mat_rot_obj_ray = mat_rot * mat_obj_ray;
 
-    float scale = -mat_trans.at<float>(2, 0) / mat_rot_obj_ray.at<float>(2, 0);
+    // 近水平射线 z 分量接近 0 时与地面无交点，除法会产生 Inf/NaN，做止血保护
+    float denom = mat_rot_obj_ray.at<float>(2, 0);
+    if (std::abs(denom) < 1e-6f) {
+        std::cerr << "near-horizontal ray, no valid ground intersection" << std::endl;
+        return cv::Point3f(0.f, 0.f, 0.f);
+    }
+    float scale = -mat_trans.at<float>(2, 0) / denom;
 
     cv::Mat mat_position = mat_trans + scale * mat_rot_obj_ray;
     return cv::Point3f(mat_position.at<float>(0, 0), mat_position.at<float>(1, 0), mat_position.at<float>(2, 0));

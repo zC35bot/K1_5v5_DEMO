@@ -169,6 +169,10 @@ void EyeInHandCalibration(double *reprojection_error,
                     *p_cam2head_best = p_eye2head;
                     *p_board2base_best = p_board2base;
                 }
+            } else if (*reprojection_error > error) {
+                *reprojection_error = error;
+                *p_cam2head_best = p_eye2head;
+                *p_board2base_best = p_board2base;
             }
         }
     }
@@ -181,7 +185,13 @@ cv::Point3f CalculatePositionByIntersection(const Pose &p_eye2base, const cv::Po
 
     cv::Mat mat_rot_obj_ray = mat_rot * mat_obj_ray;
 
-    float scale = -mat_trans.at<float>(2, 0) / mat_rot_obj_ray.at<float>(2, 0);
+    // 近水平射线 z 分量接近 0 时与地面无交点，除法会产生 Inf/NaN，做止血保护
+    float denom = mat_rot_obj_ray.at<float>(2, 0);
+    if (std::abs(denom) < 1e-6f) {
+        std::cerr << "near-horizontal ray, no valid ground intersection" << std::endl;
+        return cv::Point3f(0.f, 0.f, 0.f);
+    }
+    float scale = -mat_trans.at<float>(2, 0) / denom;
 
     cv::Mat mat_position = mat_trans + scale * mat_rot_obj_ray;
     return cv::Point3f(mat_position.at<float>(0, 0), mat_position.at<float>(1, 0), mat_position.at<float>(2, 0));
@@ -194,6 +204,11 @@ double Compute3dError(
     const Pose &p_eye2head,
     const Pose &p_head2head_prime) {
     double avg_error = 0;
+    // 无点时 avg_error /= rays.size() 会除以零产生 NaN，提前返回
+    if (rays.empty()) {
+        std::cerr << "no points provided to Compute3dError" << std::endl;
+        return 0.0;
+    }
     for (size_t i = 0; i < rays.size(); i++) {
         auto p_eye2base = p_head2bases[i] * p_head2head_prime * p_eye2head;
         auto ray = rays[i];
@@ -240,6 +255,12 @@ void EyeInHandOffsetCalibration(double *euclidian_error,
         // problem.AddResidualBlock(cost_function, nullptr, q_head2head_prime.coeffs().data(), t_head2head_prime.data());
         problem.AddResidualBlock(cost_function, new ceres::CauchyLoss(0.5), q_head2head_prime.coeffs().data(), t_head2head_prime.data());
         problem_cnt++;
+    }
+
+    // 无残差块时跳过求解，避免 cost/problem_cnt 除以零产生 NaN/Inf
+    if (problem_cnt == 0) {
+        std::cerr << "no residual blocks, skip offset optimization" << std::endl;
+        return;
     }
 
     problem.SetManifold(q_head2head_prime.coeffs().data(), new ceres::EigenQuaternionManifold());

@@ -89,10 +89,16 @@ cv::Mat toCVMat(const sensor_msgs::msg::Image &source) {
     if (source.encoding == enc::MONO16) {
         int width = source.width;
         int height = source.height;
-        
-        // Create a Mat and copy the data
+        const size_t row_bytes = static_cast<size_t>(source.step);
+        const size_t expected = row_bytes * static_cast<size_t>(height);
+        if (source.data.size() < expected) {
+            throw Exception("MONO16 image data too small for width/height/step");
+        }
+
         cv::Mat depth_mat(height, width, CV_16UC1);
-        memcpy(depth_mat.data, source.data.data(), source.data.size());
+        for (int i = 0; i < height; ++i) {
+            std::memcpy(depth_mat.ptr(i), source.data.data() + i * row_bytes, width * sizeof(uint16_t));
+        }
         
         // Handle endianness if needed
         if ((rcpputils::endian::native == rcpputils::endian::big && !source.is_bigendian) ||
@@ -113,10 +119,16 @@ cv::Mat toCVMat(const sensor_msgs::msg::Image &source) {
         // NV12 format: Y plane followed by interleaved UV plane
         int width = source.width;
         int height = source.height;
-        
-        // Create a cv::Mat for the NV12 data
+        const size_t row_bytes = static_cast<size_t>(source.step);
+        const size_t expected = row_bytes * static_cast<size_t>(height * 3 / 2);
+        if (source.data.size() < expected) {
+            throw Exception("NV12 image data too small for width/height/step");
+        }
+
         cv::Mat nv12(height * 3 / 2, width, CV_8UC1);
-        std::memcpy(nv12.data, source.data.data(), source.data.size());
+        for (int i = 0; i < height * 3 / 2; ++i) {
+            std::memcpy(nv12.ptr(i), source.data.data() + i * row_bytes, width);
+        }
         
         // Convert NV12 to BGR format
         cv::Mat bgr_mat;
@@ -128,10 +140,16 @@ cv::Mat toCVMat(const sensor_msgs::msg::Image &source) {
     if (source.encoding == enc::BGRA8) {
         int width = source.width;
         int height = source.height;
+        const size_t row_bytes = static_cast<size_t>(source.step);
+        const size_t expected = row_bytes * static_cast<size_t>(height);
+        if (source.data.size() < expected) {
+            throw Exception("BGRA8 image data too small for width/height/step");
+        }
 
-        // Create a cv::Mat for the BGRA data
         cv::Mat bgra_mat(height, width, CV_8UC4);
-        std::memcpy(bgra_mat.data, source.data.data(), source.data.size());
+        for (int i = 0; i < height; ++i) {
+            std::memcpy(bgra_mat.ptr(i), source.data.data() + i * row_bytes, width * 4);
+        }
 
         // Convert BGRA to BGR format
         cv::Mat bgr_mat;

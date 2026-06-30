@@ -3,6 +3,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 def handle_configuration(context, *args, **kwargs):
@@ -37,12 +38,12 @@ def handle_configuration(context, *args, **kwargs):
             output='screen',
             arguments=[config_file, config_local_file],
             parameters=[{
-                'offline_mode': offline_mode,
-                'show_det': show_det,
-                'show_seg': show_seg,
-                'save_data': save_data,
-                'save_depth': save_depth,
-                'save_fps': save_fps,
+                'offline_mode': ParameterValue(offline_mode, value_type=bool),
+                'show_det': ParameterValue(show_det, value_type=bool),
+                'show_seg': ParameterValue(show_seg, value_type=bool),
+                'save_data': ParameterValue(save_data, value_type=bool),
+                'save_depth': ParameterValue(save_depth, value_type=bool),
+                'save_fps': ParameterValue(save_fps, value_type=int),
                 'detection_model_path': detection_model_path,
                 'segmentation_model_path': segmentation_model_path,
                 'camera_type': camera_type

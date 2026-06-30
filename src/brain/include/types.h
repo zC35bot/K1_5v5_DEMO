@@ -62,7 +62,7 @@ struct Point2D
 // BoundingBox
 struct BoundingBox
 {
-    double xmin, xmax, ymin, ymax;
+    double xmin = 0, xmax = 0, ymin = 0, ymax = 0; // 类内默认初始化, 避免首次检测前读到未初始化值
 };
 
 // GameObject, 用于存储比赛中的重要实体信息，如 Ball, Goalpost 等。相比于 /detect 消息中的 detection::DetectedObject，它的信息更为丰富。
@@ -73,19 +73,19 @@ struct GameObject
     string color;                // 物体的颜色. 只用于 Opponent, 用于识别敌我
     BoundingBox boundingBox;     // 物体在摄像头中的识别框, 左上角为 0 点, 向右为 x, 向下为 y
     Point2D precisePixelPoint;   // 物体的精确像素点位置, 仅地面标志点有这一数据
-    double confidence;           // 识别的置信度, 对 obstacle 来说, 是大于 0 的数字, 代表障碍网格中高于阈值的点数
+    double confidence = 0;       // 识别的置信度, 对 obstacle 来说, 是大于 0 的数字, 代表障碍网格中高于阈值的点数 (默认初始化)
     Point posToRobot;            // 物体在机器人本体坐标系的的位置, 位置为 2D, 忽略 z 值.
 
     // --- 在 processDetectedObject 函数中计算获得 ---
     Point posToField;                                 // 物体在物体场坐标系的的位置, 位置为 2D, 忽略 z 值. x 向前, y 向左.
-    double range;                                     // 物体距离机器人中心在物体场平面上的投影点的直线距离
-    double pitchToRobot, yawToRobot;                  // 物体相对于机器人正前方的 pitch 和 yaw, 单位 rad, 向下和向左为正
+    double range = 0;                                 // 物体距离机器人中心在物体场平面上的投影点的直线距离 (默认初始化)
+    double pitchToRobot = 0, yawToRobot = 0;          // 物体相对于机器人正前方的 pitch 和 yaw, 单位 rad, 向下和向左为正 (默认初始化)
     rclcpp::Time timePoint;                           // 物体被检测到的时间
 
     // --- 通过各类不同对象的特殊处理获得, 只有部分对象有这些值 ---
-    int id;    // 识别出来的 id 
+    int id = 0;    // 识别出来的 id (默认初始化)
     string name;  // human readable id
-    double idConfidence; // id 识别的置信度 [0, 1] 区间,
+    double idConfidence = 0; // id 识别的置信度 [0, 1] 区间, (默认初始化)
     int positionConfidence = 0; // 视觉侧附带的位置来源/模式编码
     string info; // 用于存储额外的信息
 };

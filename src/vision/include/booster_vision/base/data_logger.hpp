@@ -45,6 +45,10 @@ public:
         log_queue_.emplace([full_file_path, node_copy]() {
             std::ofstream fout(full_file_path);
             fout << node_copy;
+            // 写文件失败不再静默吞掉，打印完整路径便于排查
+            if (!fout.good()) {
+                std::cerr << "failed to write yaml: " << full_file_path << std::endl;
+            }
         });
         queue_cv_.notify_one();
     }
@@ -54,7 +58,10 @@ public:
         std::string full_file_path = log_root_ + "/" + file_name;
         cv::Mat image_copy = image.clone(); // Make a deep copy of the image
         log_queue_.emplace([full_file_path, image_copy]() {
-            cv::imwrite(full_file_path, image_copy);
+            // 检查 imwrite 返回值，写文件失败时打印完整路径
+            if (!cv::imwrite(full_file_path, image_copy)) {
+                std::cerr << "failed to write image: " << full_file_path << std::endl;
+            }
         });
         queue_cv_.notify_one();
     }
@@ -129,8 +136,19 @@ private:
                 }
                 log_task = std::move(log_queue_.front());
                 log_queue_.pop();
+                // 队列清空后通知 ChangeLogPath 的等待者，避免其永久阻塞
+                if (log_queue_.empty()) {
+                    queue_cv_.notify_all();
+                }
             }
-            log_task();
+            // 包裹任务异常，避免逸出后台线程导致 std::terminate
+            try {
+                log_task();
+            } catch (const std::exception &e) {
+                std::cerr << "log task failed: " << e.what() << std::endl;
+            } catch (...) {
+                std::cerr << "log task failed: unknown exception" << std::endl;
+            }
         }
     }
 };

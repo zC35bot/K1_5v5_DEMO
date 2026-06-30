@@ -44,6 +44,11 @@ void DataSyncer::AddPose(const PoseDataBlock &pose_data) {
 }
 
 SyncedDataBlock DataSyncer::getSyncedDataBlock() {
+    // 离线数据未加载时 time_stamp_list_ 为空，下标访问越界且末尾 %0 触发 SIGFPE
+    if (time_stamp_list_.empty()) {
+        std::cerr << "no offline data loaded" << std::endl;
+        return SyncedDataBlock();
+    }
     std::string color_file_path = data_dir_ + "/color_" + std::to_string(time_stamp_list_[data_index_]) + ".jpg";
     std::string depth_file_path = data_dir_ + "/depth_" + std::to_string(time_stamp_list_[data_index_]) + ".png";
     std::string pose_file_path = data_dir_ + "/pose_" + std::to_string(time_stamp_list_[data_index_]) + ".yaml";

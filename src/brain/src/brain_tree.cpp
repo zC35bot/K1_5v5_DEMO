@@ -1363,7 +1363,11 @@ NodeStatus StrikerDecide::tick() {
     if (assignedPartnerId == 0) {
         for (int i = 0; i < HL_MAX_NUM_PLAYERS; ++i) {
             if (i + 1 == selfId) continue;
-            const auto &status = brain->data->tmStatus[i];
+            TMStatus status;
+            {
+                std::lock_guard<std::mutex> lock(brain->data->brainMutex);
+                status = brain->data->tmStatus[i];
+            }
             if (!status.isAlive || status.isFallen) continue;
             if (status.teamRole == TEAM_ROLE_SUPPORTER || status.role == "striker") {
                 assignedPartnerId = i + 1;
@@ -1421,6 +1425,14 @@ NodeStatus StrikerDecide::tick() {
         ballYaw,
         ball.posToField
     );
+
+    // 写侧统一加锁：StrikerDecide 对 kickDir / pass(传球) / oneTwo 状态的写入，
+    // 需与通讯线程 unicastCommunication 在 brainMutex 下读取(快照)保持一致，避免跨线程撕裂读。
+    // 锁区一次性覆盖整段决策写入(下方 if-else 链 + tmImInVisualKick)，使通讯线程读到一致快照；
+    // 不与上方 1368 行小作用域锁嵌套(该锁已在 assignedPartnerId 计算后释放)，
+    // 且区段内 helper / resetPassState / resetOneTwoState 等均不再次锁 brainMutex，无重入死锁风险。
+    {
+        std::lock_guard<std::mutex> lock(brain->data->brainMutex);
 
     if (!(iKnowBallPos || tmBallPosReliable))
     {
@@ -1744,6 +1756,7 @@ NodeStatus StrikerDecide::tick() {
     if (newDecision != "auto_visual_kick") {
         brain->data->tmImInVisualKick = false;
     }
+    } // brainMutex 锁区结束（一致快照写入完成后立即释放，日志/setOutput 在锁外执行）
 
     setOutput("decision_out", newDecision);
     brain->log->logToScreen(
@@ -2777,7 +2790,7 @@ bool SelfLocateLocal::_doubleX() {
 
     // 观察到的球场中心点的坐标
     double xc = (p0.posToField.x + p1.posToField.x) / 2.0;
-    double yc = (p1.posToField.y + p1.posToField.y) / 2.0;
+    double yc = (p0.posToField.y + p1.posToField.y) / 2.0;
 
     double maxDrift = 2.0;
     if (norm(xc, yc) > maxDrift) {
@@ -3102,7 +3115,7 @@ NodeStatus SelfLocate2X::tick()
 
     // 理论与实际的差值
     double dx = - (p0.posToField.x + p1.posToField.x) / 2.0;
-    double dy = - (p1.posToField.y + p1.posToField.y) / 2.0;
+    double dy = - (p0.posToField.y + p1.posToField.y) / 2.0;
     double drift = norm(dx, dy);
 
     if (drift > maxDrift) { // 修正量过大
@@ -3292,7 +3305,7 @@ NodeStatus SelfLocateLT::tick()
         
         if (t.range > maxDist) continue; // 太远
 
-        for (int j = i + 1; j < lMarkers.size(); j++) {
+        for (int j = 0; j < lMarkers.size(); j++) {
             l = lMarkers[j];
 
             if (l.range > maxDist) continue;
@@ -3410,12 +3423,12 @@ NodeStatus SelfLocatePT::tick()
         p = posts[i];
         if (p.range > maxDist) continue;
 
-        for (int j = i + 1; j < tMarkers.size(); j++) {
+        for (int j = 0; j < tMarkers.size(); j++) {
             t = tMarkers[j];
             if (t.range > maxDist) continue;
             if (
                 fabs(t.posToField.x - p.posToField.x) < 0.5
-                && fabs(fabs(t.posToField.x - p.posToField.x) - fabs(fd.goalAreaWidth - fd.goalWidth) / 2.0) < 0.3
+                && fabs(fabs(t.posToField.y - p.posToField.y) - fabs(fd.goalAreaWidth - fd.goalWidth) / 2.0) < 0.3
             ) {
                 found = true;
                 break;
@@ -3443,7 +3456,7 @@ NodeStatus SelfLocatePT::tick()
     for (auto half: halfs) {
         for (auto side: sides) {
             pos_m = {
-                half * (fd.length), 
+                half * (fd.length / 2.0),
                 side * (fd.goalAreaWidth / 2.0)
             };
             double dist = norm(pos_o.x - pos_m.x, pos_o.y - pos_m.y);

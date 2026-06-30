@@ -1,4 +1,5 @@
 #include <sys/socket.h>
+#include <sys/time.h> // SO_RCVTIMEO 需要 struct timeval
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
@@ -34,15 +35,21 @@ GameControllerNode::GameControllerNode(string name) : rclcpp::Node(name)
 
 GameControllerNode::~GameControllerNode()
 {
+    // 先 shutdown 唤醒阻塞中的 recvfrom，再 join，最后 close，避免接收线程挂死/崩溃
     if (_socket >= 0)
     {
-        // 关闭打开的文件描述符是个好习惯
-        close(_socket);
+        ::shutdown(_socket, SHUT_RDWR);
     }
 
     if (_thread.joinable())
     {
         _thread.join();
+    }
+
+    if (_socket >= 0)
+    {
+        // 关闭打开的文件描述符是个好习惯
+        close(_socket);
     }
 }
 
@@ -73,6 +80,15 @@ void GameControllerNode::init()
         throw runtime_error(strerror(errno));
     }
 
+    // 设置接收超时，使 recvfrom 周期性返回，便于循环检查 rclcpp::ok() 并在退出时不挂死
+    struct timeval tv;
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+    if (setsockopt(_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
+    {
+        RCLCPP_WARN(get_logger(), "setsockopt(SO_RCVTIMEO) failed: %s", strerror(errno));
+    }
+
     // bind 成功后就可以开始从 socket 里接收数据了
     RCLCPP_INFO(get_logger(), "Listening for UDP broadcast on 0.0.0.0:%d", _port);
 
@@ -97,6 +113,11 @@ void GameControllerNode::spin()
         ssize_t ret = recvfrom(_socket, &data, sizeof(data), 0, (sockaddr *)&remote_addr, &remote_addr_len);
         if (ret < 0)
         {
+            // 接收超时(SO_RCVTIMEO)属正常情况，静默重试以便回到循环检查 rclcpp::ok()
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                continue;
+            }
             RCLCPP_ERROR(get_logger(), "receiving UDP message failed: %s", strerror(errno));
             continue;
         }
@@ -108,6 +129,13 @@ void GameControllerNode::spin()
         if (ret != sizeof(data))
         {
             RCLCPP_INFO(get_logger(), "packet from %s invalid length=%ld", remote_ip.c_str(), ret);
+            continue;
+        }
+
+        // 校验 header 魔数 "RGme"，过滤伪造/杂散包，避免被当合法指令发布
+        if (memcmp(data.header, GAMECONTROLLER_STRUCT_HEADER, sizeof(data.header)) != 0)
+        {
+            RCLCPP_DEBUG(get_logger(), "packet from %s invalid header, ignore it", remote_ip.c_str());
             continue;
         }
 
@@ -127,8 +155,21 @@ void GameControllerNode::spin()
         // 处理消息，把 data 数据 copy 到 msg
         handle_packet(data, msg);
 
-        // 将消息发布到 Topic 中
-        _publisher->publish(msg);
+        // 退出阶段 context 可能已失效，发布前判活并捕获异常，避免析构/关停时崩溃
+        if (!rclcpp::ok())
+        {
+            break;
+        }
+        try
+        {
+            // 将消息发布到 Topic 中
+            _publisher->publish(msg);
+        }
+        catch (const std::exception &e)
+        {
+            RCLCPP_ERROR(get_logger(), "publish failed: %s", e.what());
+            break;
+        }
 
         RCLCPP_INFO(get_logger(), "handle packet successfully ip=%s, packet_number=%d", remote_ip.c_str(), data.packetNumber);
     }

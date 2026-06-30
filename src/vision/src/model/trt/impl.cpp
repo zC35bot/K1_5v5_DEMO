@@ -448,15 +448,17 @@ std::vector<booster_vision::SegmentationRes> YoloV8SegmentorTRT::Inference(const
 
 #elif (NV_TENSORRT_MAJOR == 10) && (NV_TENSORRT_MINOR == 3)
 
+#include "booster_vision/model/trt/cuda_utils.h"
+
 namespace {
 
 Logger logger;
 
 void MemcpyBuffers(void* dstPtr, void const* srcPtr, size_t byteSize, cudaMemcpyKind memcpyType, bool const async, cudaStream_t& stream) {
     if (async) {
-        cudaMemcpyAsync(dstPtr, srcPtr, byteSize, memcpyType, stream);
+        CUDA_CHECK(cudaMemcpyAsync(dstPtr, srcPtr, byteSize, memcpyType, stream));
     } else {
-        cudaMemcpy(dstPtr, srcPtr, byteSize, memcpyType);
+        CUDA_CHECK(cudaMemcpy(dstPtr, srcPtr, byteSize, memcpyType));
     }
 }
 
@@ -542,11 +544,11 @@ void YoloV8DetectorTRT::Init(std::string model_path) {
     output_size_ = model_output_dims_.d[0] * model_output_dims_.d[1] * model_output_dims_.d[2];
     input_buff_ = (float*)malloc(input_size_ * sizeof(float));
     output_buff_ = (float*)malloc(output_size_ * sizeof(float));
-    cudaMalloc(&input_mem_, input_size_ * sizeof(float));
-    cudaMalloc(&output_mem_, output_size_ * sizeof(float));
+    CUDA_CHECK(cudaMalloc(&input_mem_, input_size_ * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&output_mem_, output_size_ * sizeof(float)));
     if (async_infer_)
     {
-        cudaStreamCreate(&stream_);
+        CUDA_CHECK(cudaStreamCreate(&stream_));
     }
     else
     {
@@ -610,9 +612,9 @@ std::vector<booster_vision::DetectionRes> YoloV8DetectorTRT::Inference(const cv:
 }
 
 YoloV8DetectorTRT::~YoloV8DetectorTRT() {
-  cudaStreamDestroy(stream_);
-  cudaFree(input_mem_);
-  cudaFree(output_mem_);
+  if (stream_) CUDA_CHECK(cudaStreamDestroy(stream_));
+  if (input_mem_) CUDA_CHECK(cudaFree(input_mem_));
+  if (output_mem_) CUDA_CHECK(cudaFree(output_mem_));
   free(input_buff_);
   free(output_buff_);
 }
@@ -643,7 +645,11 @@ bool YoloV8DetectorTRT::LoadEngine()
     Dims input_shape = engine_->getTensorShape(inputname);
     Dims output_shape = engine_->getTensorShape(outputname);
     model_input_dims_ = Dims4(input_shape.d[0], input_shape.d[1], input_shape.d[2], input_shape.d[3]);
-    model_output_dims_ = Dims4(output_shape.d[0], output_shape.d[1], output_shape.d[2], output_shape.d[3]);
+    if (output_shape.nbDims == 4) {
+        model_output_dims_ = Dims4(output_shape.d[0], output_shape.d[1], output_shape.d[2], output_shape.d[3]);
+    } else {
+        model_output_dims_ = Dims4(output_shape.d[0], output_shape.d[1], output_shape.d[2], 1);
+    }
     std::cout << "model input dims: " << input_shape.d[0] << " " << input_shape.d[1] << " " << input_shape.d[2] << " " << input_shape.d[3] << std::endl;
     std::cout << "model output dims: " << output_shape.d[0] << " " << output_shape.d[1] << " " << output_shape.d[2] << std::endl;
    
@@ -655,8 +661,8 @@ bool YoloV8DetectorTRT::LoadEngine()
 std::vector<booster_vision::DetectionRes> YoloV8DetectorTRT::PostProcess(std::vector<float> factors)
 {
     const int outputSize = model_output_dims_.d[1];
-    //float* output = static_cast<float*>(output_buff_);
-    cv::Mat outputs(outputSize, 8400, CV_32F, output_buff_);
+    const int anchors = model_output_dims_.d[2];
+    cv::Mat outputs(outputSize, anchors, CV_32F, output_buff_);
 
     std::vector<int> class_ids;
     std::vector<float> confidences;
@@ -771,12 +777,12 @@ void YoloV8SegmentorTRT::Init(std::string model_path) {
     det_output_buff_ = (float*)malloc(det_output_size_ * sizeof(float));
     mask_output_buff_ = (float*)malloc(mask_output_size_ * sizeof(float));
 
-    cudaMalloc(&input_mem_, input_size_ * sizeof(float));
-    cudaMalloc(&det_output_mem_, det_output_size_ * sizeof(float));
-    cudaMalloc(&mask_output_mem_, mask_output_size_ * sizeof(float));
+    CUDA_CHECK(cudaMalloc(&input_mem_, input_size_ * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&det_output_mem_, det_output_size_ * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&mask_output_mem_, mask_output_size_ * sizeof(float)));
     if (async_infer_)
     {
-        cudaStreamCreate(&stream_);
+        CUDA_CHECK(cudaStreamCreate(&stream_));
     }
     else
     {
@@ -952,10 +958,10 @@ std::vector<booster_vision::SegmentationRes> YoloV8SegmentorTRT::PostProcess(std
 }
 
 YoloV8SegmentorTRT::~YoloV8SegmentorTRT() {
-  cudaStreamDestroy(stream_);
-  cudaFree(input_mem_);
-  cudaFree(det_output_mem_);
-  cudaFree(mask_output_mem_);
+  if (stream_) CUDA_CHECK(cudaStreamDestroy(stream_));
+  if (input_mem_) CUDA_CHECK(cudaFree(input_mem_));
+  if (det_output_mem_) CUDA_CHECK(cudaFree(det_output_mem_));
+  if (mask_output_mem_) CUDA_CHECK(cudaFree(mask_output_mem_));
   free(input_buff_);
   free(det_output_buff_);
   free(mask_output_buff_);

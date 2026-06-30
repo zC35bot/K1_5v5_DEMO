@@ -165,6 +165,8 @@ public:
     int tmMyPassSequenceCounter = 0; // 本地递增的传球序列计数器
 
     // 通讯相关
+    mutable std::mutex brainMutex;
+
     int discoveryMsgId = 0;
     rclcpp::Time discoveryMsgTime;
     int sendId = 0;

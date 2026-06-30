@@ -167,7 +167,10 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
         float yaw_comp = as_or<float>(node["camera"]["yaw_compensation"], 0.0);
         float z_comp = as_or<float>(node["camera"]["z_compensation"], 0.0);
 
-        p_headprime2head_ = Pose(0, 0, z_comp, 0, pitch_comp * M_PI / 180, yaw_comp * M_PI / 180);
+        {
+            std::lock_guard<std::mutex> lock(headprime_mutex_);
+            p_headprime2head_ = Pose(0, 0, z_comp, 0, pitch_comp * M_PI / 180, yaw_comp * M_PI / 180);
+        }
     }
 
     // init detector
@@ -226,7 +229,13 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
     use_depth_ = as_or<bool>(node["use_depth"], false);
     data_syncer_ = std::make_shared<DataSyncer>(use_depth_);
     bool save_data_nonstationary = as_or<bool>(node["misc"]["save_data_nonstationary"], true);
-    std::string log_root = std::string(std::getenv("HOME")) + "/Workspace/vision_log/" + getTimeString();
+    // HOME 缺失时（systemd/容器/CI）对空指针构造 std::string 会崩溃，回退到 /tmp 并告警
+    const char *home_env = std::getenv("HOME");
+    std::string home_dir = (home_env && home_env[0]) ? home_env : "/tmp";
+    if (!home_env || !home_env[0]) {
+        std::cerr << "[vision_node] HOME not set, fallback log root to /tmp" << std::endl;
+    }
+    std::string log_root = home_dir + "/Workspace/vision_log/" + getTimeString();
     data_logger_ = save_data_ ? std::make_shared<DataLogger>(log_root, save_data_nonstationary) : nullptr;
     if (data_logger_) {
         data_logger_->LogYAML(node, "vision_local.yaml");
@@ -374,7 +383,12 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
     }
 
     Pose p_head2base = synced_data.pose_data.data;
-    Pose p_eye2base = p_head2base * p_headprime2head_ * p_eye2head_;
+    Pose headprime;
+    {
+        std::lock_guard<std::mutex> lock(headprime_mutex_);
+        headprime = p_headprime2head_;
+    }
+    Pose p_eye2base = p_head2base * headprime * p_eye2head_;
     std::cout << "det: p_eye2base: \n"
               << p_eye2base.toCVMat() << std::endl;
 
@@ -501,11 +515,7 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         Pose pose_obj_by_color = pose_estimator->EstimateProjection(p_eye2base, detection, color, depth_float);
         Pose pose_obj_by_depth = pose_estimator->EstimateByDepth(p_eye2base, detection, color, depth_float);
 
-        // filter out incorrect ball detection
-        if (pose_estimator->use_depth_ && detection.class_name == "Ball" && pose_obj_by_depth == Pose()) {
-            std::cout << "filtered out ball detection by depth" << std::endl;
-            continue;
-        }
+        // depth failure does not invalidate projection-based ball position
         detection_obj.position_projection = pose_obj_by_color.getTranslationVec();
         detection_obj.position = pose_obj_by_depth.getTranslationVec();
 
@@ -529,10 +539,14 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
 
         if ((color_classifier_ != nullptr) && (detection.class_name == "Opponent")) {
             // get a crop of the image given detection.bbox
-            cv::Mat crop = color(detection.bbox);
-            std::string robot_color_str = color_classifier_->Classify(crop);
-            // add robot color to detection_obj
-            detection_obj.color = robot_color_str;
+            // 夹紧 bbox 到图像范围，越界框会让 color(bbox) 抛异常终止视觉进程
+            cv::Rect safe_bbox = detection.bbox & cv::Rect(0, 0, color.cols, color.rows);
+            if (safe_bbox.width > 0 && safe_bbox.height > 0) {
+                cv::Mat crop = color(safe_bbox);
+                std::string robot_color_str = color_classifier_->Classify(crop);
+                // add robot color to detection_obj
+                detection_obj.color = robot_color_str;
+            }
         }
 
         // publish detection
@@ -663,7 +677,12 @@ void VisionNode::ProcessSegmentationData(SyncedDataBlock &synced_data, vision_in
     double timestamp = synced_data.color_data.timestamp;
     cv::Mat color = synced_data.color_data.data;
     Pose p_head2base = synced_data.pose_data.data;
-    Pose p_eye2base = p_head2base * p_headprime2head_ * p_eye2head_;
+    Pose headprime;
+    {
+        std::lock_guard<std::mutex> lock(headprime_mutex_);
+        headprime = p_headprime2head_;
+    }
+    Pose p_eye2base = p_head2base * headprime * p_eye2head_;
 
     double time_diff = (timestamp - synced_data.pose_data.timestamp) * 1000;
     if (time_diff > 40) {
@@ -801,7 +820,10 @@ void VisionNode::CalParamCallback(const vision_interface::msg::CalParam::SharedP
     float yaw_comp = msg->yaw_compensation;
     float z_comp = msg->z_compensation;
     std::cout << "calParams: " << pitch_comp << " " << yaw_comp << " " << z_comp << std::endl;
-    p_headprime2head_ = Pose(0, 0, z_comp, 0, pitch_comp * M_PI / 180, yaw_comp * M_PI / 180);
+    {
+        std::lock_guard<std::mutex> lock(headprime_mutex_);
+        p_headprime2head_ = Pose(0, 0, z_comp, 0, pitch_comp * M_PI / 180, yaw_comp * M_PI / 180);
+    }
 }
 
 } // namespace booster_vision
