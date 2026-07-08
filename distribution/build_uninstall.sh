@@ -13,6 +13,7 @@ cd ..
 
 
 git_commit_id=$(git rev-parse --short=6 HEAD)
+project_name=$(basename "$root_path")
 
 package_dir="$root_path/distribution/packages/robocup_uninstall_$git_commit_id"
 if [ ! -d "$package_dir" ]; then
@@ -20,7 +21,8 @@ if [ ! -d "$package_dir" ]; then
 fi
 
 cp "$root_path/distribution/uninstall.sh" "$package_dir"
-chmod +x "$root_path/distribution/uninstall.sh"
+printf '%s\n' "$project_name" > "$package_dir/.project_name"
+chmod +x "$package_dir/uninstall.sh"
 
 echo "Copy success"
 

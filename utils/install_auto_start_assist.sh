@@ -1,22 +1,20 @@
 #!/bin/sh
-# 获取当前脚本文件的绝对路径
+set -e
+
 script_path=$(readlink -f "$0")
+utils_root=$(dirname "$script_path")
+install_root="${1:-$(dirname "$utils_root")}"
+service_template="$utils_root/service/robocup_game_assist.service"
+service_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+service_file="$service_dir/robocup_game_assist.service"
+
 echo "Script path: $script_path"
+echo "Install root: $install_root"
 
-# 提取父目录路径作为根路径
-root_path=$(dirname $script_path)
-echo "root_path: $root_path"
+systemctl --user stop robocup_game_assist.service || true
+mkdir -p "$service_dir"
+sed "s|__ROBOCUP_ROOT__|$install_root|g" "$service_template" > "$service_file"
 
-service_path=$root_path/service
-
-# 先停止系统服务
-systemctl --user stop robocup_game_assist.service
-mkdir -p ~/.config/systemd/user/
-cp $service_path/robocup_game_assist.service ~/.config/systemd/user/
-
-# 重启系统服务
 systemctl --user daemon-reload
-
 systemctl --user start robocup_game_assist.service
 systemctl --user enable robocup_game_assist.service
-

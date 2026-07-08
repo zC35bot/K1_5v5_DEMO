@@ -17,6 +17,7 @@ colcon build
 echo "Build success"
 
 git_commit_id=$(git rev-parse --short=6 HEAD)
+project_name=$(basename "$root_path")
 
 package_dir="$root_path/distribution/packages/robocup_$git_commit_id"
 if [ ! -d "$package_dir" ]; then
@@ -40,7 +41,8 @@ rsync -aL "$root_path/configs/" "$package_dir/configs/"
 rsync -aL "$root_path/src/vision/model/" "$vision_model_src_dir"
 rsync -aL "$root_path/src/vision/config/" "$vision_config_src_dir"
 cp "$root_path/distribution/install.sh" "$package_dir"
-chmod +x "$root_path/distribution/install.sh"
+printf '%s\n' "$project_name" > "$package_dir/.project_name"
+chmod +x "$package_dir/install.sh"
 
 echo "Copy success"
 
